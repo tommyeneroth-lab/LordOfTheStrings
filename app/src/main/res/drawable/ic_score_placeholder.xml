@@ -4,18 +4,50 @@
     android:height="140dp"
     android:viewportWidth="100"
     android:viewportHeight="140">
+
     <!-- Paper background -->
-    <path android:fillColor="#F5F0E8" android:pathData="M5,5 h90 v130 h-90 z"/>
+    <path
+        android:fillColor="#F5F0E8"
+        android:pathData="M5,5 h90 v130 h-90 z" />
+
     <!-- Staff lines -->
-    <path android:strokeColor="#CCCCCC" android:strokeWidth="1.5"
-        android:pathData="M15,40 H85 M15,48 H85 M15,56 H85 M15,64 H85 M15,72 H85"/>
-    <path android:strokeColor="#CCCCCC" android:strokeWidth="1.5"
-        android:pathData="M15,90 H85 M15,98 H85 M15,106 H85 M15,114 H85 M15,122 H85"/>
-    <!-- Note symbols -->
-    <circle android:fillColor="#888888" android:cx="30" android:cy="52" android:r="4"/>
-    <path android:strokeColor="#888888" android:strokeWidth="1.5" android:pathData="M34,52 V36"/>
-    <circle android:fillColor="#888888" android:cx="50" android:cy="60" android:r="4"/>
-    <path android:strokeColor="#888888" android:strokeWidth="1.5" android:pathData="M54,60 V44"/>
-    <circle android:fillColor="#888888" android:cx="70" android:cy="44" android:r="4"/>
-    <path android:strokeColor="#888888" android:strokeWidth="1.5" android:pathData="M74,44 V28"/>
+    <path
+        android:strokeColor="#CCCCCC"
+        android:strokeWidth="1.5"
+        android:pathData="M15,40 H85 M15,48 H85 M15,56 H85 M15,64 H85 M15,72 H85" />
+    <path
+        android:strokeColor="#CCCCCC"
+        android:strokeWidth="1.5"
+        android:pathData="M15,90 H85 M15,98 H85 M15,106 H85 M15,114 H85 M15,122 H85" />
+
+    <!-- Note 1: filled notehead (circle via path) at (30,52) r=4 -->
+    <path
+        android:fillColor="#888888"
+        android:pathData="M34,52 A4,4 0 1,1 26,52 A4,4 0 1,1 34,52 Z" />
+    <!-- Note 1: stem -->
+    <path
+        android:strokeColor="#888888"
+        android:strokeWidth="1.5"
+        android:pathData="M34,52 V36" />
+
+    <!-- Note 2: filled notehead at (50,60) r=4 -->
+    <path
+        android:fillColor="#888888"
+        android:pathData="M54,60 A4,4 0 1,1 46,60 A4,4 0 1,1 54,60 Z" />
+    <!-- Note 2: stem -->
+    <path
+        android:strokeColor="#888888"
+        android:strokeWidth="1.5"
+        android:pathData="M54,60 V44" />
+
+    <!-- Note 3: filled notehead at (70,44) r=4 -->
+    <path
+        android:fillColor="#888888"
+        android:pathData="M74,44 A4,4 0 1,1 66,44 A4,4 0 1,1 74,44 Z" />
+    <!-- Note 3: stem -->
+    <path
+        android:strokeColor="#888888"
+        android:strokeWidth="1.5"
+        android:pathData="M74,44 V28" />
+
 </vector>
