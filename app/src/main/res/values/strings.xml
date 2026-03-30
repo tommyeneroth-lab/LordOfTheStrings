@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Cello Music</string>
+    <string name="tab_library">Library</string>
+    <string name="tab_tuner">Tuner</string>
+    <string name="tab_metronome">Metronome</string>
+    <string name="title_tuner">Cello Tuner</string>
+    <string name="title_metronome">Metronome</string>
+    <string name="title_library">Score Library</string>
+    <string name="import_musicxml">Import MusicXML</string>
+    <string name="import_pdf">Import PDF</string>
+    <string name="import_jpeg">Import Photo</string>
+    <string name="play">Play</string>
+    <string name="pause">Pause</string>
+    <string name="stop">Stop</string>
+    <string name="bpm">BPM</string>
+    <string name="tap_tempo">Tap Tempo</string>
+    <string name="in_tune">In Tune</string>
+    <string name="start_tuner">Start Tuner</string>
+    <string name="stop_tuner">Stop Tuner</string>
+    <string name="play_reference">Play Reference Tone</string>
+    <string name="speed">Speed</string>
+    <string name="no_scores">No scores yet.\nTap + to import a score.</string>
+</resources>

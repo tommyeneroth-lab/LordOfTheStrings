@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Camera alignment grid overlay for score scanning -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Outer dim -->
+    <item>
+        <shape>
+            <stroke android:width="48dp" android:color="#88000000" />
+            <corners android:radius="0dp" />
+        </shape>
+    </item>
+    <!-- Center guide box -->
+    <item android:left="40dp" android:right="40dp" android:top="40dp" android:bottom="40dp">
+        <shape>
+            <stroke android:width="2dp" android:color="#AAFFFFFF" />
+            <corners android:radius="4dp" />
+        </shape>
+    </item>
+</layer-list>

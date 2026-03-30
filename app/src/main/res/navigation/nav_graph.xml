@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/libraryFragment">
+
+    <fragment
+        android:id="@+id/libraryFragment"
+        android:name="com.cellomusic.app.ui.library.LibraryFragment"
+        android:label="Library"
+        tools:layout="@layout/fragment_library"
+        xmlns:tools="http://schemas.android.com/tools">
+
+        <action
+            android:id="@+id/action_library_to_viewer"
+            app:destination="@id/scoreViewerFragment" />
+
+        <action
+            android:id="@+id/action_library_to_import"
+            app:destination="@id/importFragment" />
+
+    </fragment>
+
+    <fragment
+        android:id="@+id/tunerFragment"
+        android:name="com.cellomusic.app.ui.tuner.TunerFragment"
+        android:label="Tuner"
+        tools:layout="@layout/fragment_tuner"
+        xmlns:tools="http://schemas.android.com/tools" />
+
+    <fragment
+        android:id="@+id/metronomeFragment"
+        android:name="com.cellomusic.app.ui.metronome.MetronomeFragment"
+        android:label="Metronome"
+        tools:layout="@layout/fragment_metronome"
+        xmlns:tools="http://schemas.android.com/tools" />
+
+    <fragment
+        android:id="@+id/scoreViewerFragment"
+        android:name="com.cellomusic.app.ui.viewer.ScoreViewerFragment"
+        android:label="Score"
+        tools:layout="@layout/fragment_score_viewer"
+        xmlns:tools="http://schemas.android.com/tools">
+
+        <argument
+            android:name="scoreId"
+            app:argType="long"
+            android:defaultValue="-1L" />
+
+    </fragment>
+
+    <fragment
+        android:id="@+id/importFragment"
+        android:name="com.cellomusic.app.ui.import_.ImportFragment"
+        android:label="Import Score"
+        xmlns:tools="http://schemas.android.com/tools"
+        tools:layout="@layout/fragment_library" />
+
+</navigation>
