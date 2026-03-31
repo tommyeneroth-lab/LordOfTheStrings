@@ -18,6 +18,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private val _importStatus = MutableStateFlow<String?>(null)
     val importStatus: StateFlow<String?> = _importStatus
 
+    /** Non-null while an OMR job is running; contains the latest progress message. */
+    private val _omrProgress = MutableStateFlow<String?>(null)
+    val omrProgress: StateFlow<String?> = _omrProgress
+
     @OptIn(ExperimentalCoroutinesApi::class)
     val scores: StateFlow<List<ScoreEntity>> = _searchQuery
         .debounce(300L)
@@ -41,20 +45,31 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun importPdf(uri: Uri) = viewModelScope.launch {
-        _importStatus.value = "Processing PDF..."
-        val result = repository.importPdf(uri)
+        _omrProgress.value = "Starting PDF import…"
+        val result = repository.importPdf(uri) { msg -> _omrProgress.value = msg }
+        _omrProgress.value = null
         _importStatus.value = result.fold(
-            onSuccess = { "PDF imported (OMR processing in background)" },
+            onSuccess = { "PDF imported successfully" },
             onFailure = { "PDF import failed: ${it.message}" }
         )
     }
 
     fun importJpeg(uri: Uri) = viewModelScope.launch {
-        _importStatus.value = "Processing image..."
-        val result = repository.importJpeg(uri)
+        _omrProgress.value = "Starting image import…"
+        val result = repository.importJpeg(uri) { msg -> _omrProgress.value = msg }
+        _omrProgress.value = null
         _importStatus.value = result.fold(
-            onSuccess = { "Image imported (OMR processing in background)" },
+            onSuccess = { "Image imported successfully" },
             onFailure = { "Image import failed: ${it.message}" }
+        )
+    }
+
+    fun importMidi(uri: Uri) = viewModelScope.launch {
+        _importStatus.value = "Processing MIDI..."
+        val result = repository.importMidi(uri)
+        _importStatus.value = result.fold(
+            onSuccess = { "MIDI imported successfully" },
+            onFailure = { "MIDI import failed: ${it.message}" }
         )
     }
 

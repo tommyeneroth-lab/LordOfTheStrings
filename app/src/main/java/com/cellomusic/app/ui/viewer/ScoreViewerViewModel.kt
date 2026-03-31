@@ -18,6 +18,8 @@ class ScoreViewerViewModel : ViewModel() {
     private var player: ScorePlayer? = null
     private val _currentMeasure = MutableStateFlow(1)
     val currentMeasure: StateFlow<Int> = _currentMeasure
+    private val _currentNotePosition = MutableStateFlow(Pair(1, 0))
+    val currentNotePosition: StateFlow<Pair<Int, Int>> = _currentNotePosition
     private val _playbackState = MutableStateFlow(ScorePlayer.PlaybackState.STOPPED)
     val playbackState: StateFlow<ScorePlayer.PlaybackState> = _playbackState
 
@@ -33,16 +35,20 @@ class ScoreViewerViewModel : ViewModel() {
         viewModelScope.launch {
             scorePlayer.playbackState.collect { _playbackState.value = it }
         }
+        viewModelScope.launch {
+            scorePlayer.currentNotePosition.collect { _currentNotePosition.value = it }
+        }
 
         viewModelScope.launch {
             // Find entity by id from the flow's first emission
             var entity = repository.allScores.let { flow ->
                 var found = null as com.cellomusic.app.data.db.entity.ScoreEntity?
-                // Collect first value
-                val job = launch {
+                // Collect first value then stop
+                var job: kotlinx.coroutines.Job? = null
+                job = launch {
                     flow.collect { list ->
                         found = list.firstOrNull { it.id == scoreId }
-                        if (found != null) this.cancel()
+                        if (found != null) job?.cancel()
                     }
                 }
                 job.join()
@@ -61,6 +67,8 @@ class ScoreViewerViewModel : ViewModel() {
     fun stop() = player?.stop()
     fun seekToMeasure(measure: Int) = player?.seekToMeasure(measure)
     fun setTempoMultiplier(multiplier: Float) = player?.setTempoMultiplier(multiplier)
+    fun setVolume(volume: Float) = player?.setVolume(volume)
+    fun seekToNote(measureNumber: Int, noteIndex: Int) = player?.seekToNote(measureNumber, noteIndex)
 
     override fun onCleared() {
         super.onCleared()

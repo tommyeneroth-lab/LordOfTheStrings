@@ -2,13 +2,13 @@ package com.cellomusic.app.data.repository
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.pdf.PdfRenderer
 import android.net.Uri
-import android.os.ParcelFileDescriptor
 import com.cellomusic.app.data.db.AppDatabase
 import com.cellomusic.app.data.db.entity.ScoreEntity
 import com.cellomusic.app.domain.model.*
 import com.cellomusic.app.musicxml.MusicXmlParser
+import com.cellomusic.app.midi.MidiFileParser
+import com.cellomusic.app.omr.OmrProcessor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -24,6 +24,8 @@ class ScoreRepository(private val context: Context) {
     private val scoreDao = db.scoreDao()
     private val json = Json { prettyPrint = false; ignoreUnknownKeys = true }
     private val parser = MusicXmlParser()
+    private val omr = OmrProcessor(context)
+    private val midiParser = MidiFileParser()
 
     val allScores: Flow<List<ScoreEntity>> = scoreDao.getAllScores()
 
@@ -45,40 +47,98 @@ class ScoreRepository(private val context: Context) {
         }
     }
 
-    suspend fun importJpeg(uri: Uri): Result<Long> = withContext(Dispatchers.IO) {
-        try {
-            val imageFile = copyUriToInternal(uri, "jpg")
-            val placeholderScore = Score(
-                id = UUID.randomUUID().toString(),
-                title = "Imported Score (OMR Pending)",
-                parts = listOf(Part("P1", "Cello", "Vc.", measures = emptyList()))
-            )
-            val entity = saveScoreToStorage(placeholderScore, uri, "JPEG_OMR").copy(
-                filePathOriginal = imageFile.absolutePath
-            )
-            val id = scoreDao.insertScore(entity)
-            Result.success(id)
+    suspend fun importJpeg(
+        uri: Uri,
+        onProgress: ((String) -> Unit)? = null
+    ): Result<Long> = withContext(Dispatchers.IO) {
+        // Copy image first so we can read it even if the URI becomes invalid
+        val imageFile = copyUriToInternal(uri, "jpg")
+        val title = displayNameFromUri(uri) ?: imageFile.nameWithoutExtension
+
+        // 1. Insert placeholder immediately so the card appears with spinner
+        val scoreId = UUID.randomUUID().toString()
+        val dir = getScoreDir(scoreId); dir.mkdirs()
+        val originalFile = File(dir, "original.jpg")
+        imageFile.copyTo(originalFile, overwrite = true)
+        val placeholder = emptyScorePlaceholder(scoreId, title, originalFile, "JPEG_OMR")
+        val dbId = scoreDao.insertScore(placeholder)
+
+        // 2. Run OMR
+        return@withContext try {
+            val omrResult = omr.processJpeg(imageFile, onProgress)
+            updateScoreFromOmr(dbId, scoreId, dir, omrResult.score, "DONE")
+            Result.success(dbId)
         } catch (e: Exception) {
+            scoreDao.updateOmrResult(dbId, "FAILED", 0, 0, "C major", 4, 4)
             Result.failure(e)
         }
     }
 
-    suspend fun importPdf(uri: Uri): Result<Long> = withContext(Dispatchers.IO) {
-        try {
-            val pdfFile = copyUriToInternal(uri, "pdf")
-            val thumbnail = renderPdfPageToBitmap(pdfFile, 0)
-            val scoreId = UUID.randomUUID().toString()
-            val thumbFile = saveThumbnail(thumbnail, scoreId)
+    suspend fun importPdf(
+        uri: Uri,
+        onProgress: ((String) -> Unit)? = null
+    ): Result<Long> = withContext(Dispatchers.IO) {
+        val pdfFile = copyUriToInternal(uri, "pdf")
+        val title = (displayNameFromUri(uri) ?: pdfFile.nameWithoutExtension)
+            .replace("_", " ").replace("-", " ")
 
-            val placeholderScore = Score(
-                id = scoreId,
-                title = pdfFile.nameWithoutExtension.replace("_", " ").replace("-", " "),
-                parts = listOf(Part("P1", "Cello", "Vc.", measures = emptyList()))
-            )
-            val entity = saveScoreToStorage(placeholderScore, uri, "PDF_OMR").copy(
-                filePathOriginal = pdfFile.absolutePath,
-                thumbnailPath = thumbFile?.absolutePath
-            )
+        // Insert placeholder immediately so card appears with spinner
+        val scoreId = UUID.randomUUID().toString()
+        val dir = getScoreDir(scoreId); dir.mkdirs()
+        val originalFile = File(dir, "original.pdf")
+        pdfFile.copyTo(originalFile, overwrite = true)
+        val placeholder = emptyScorePlaceholder(scoreId, title, originalFile, "PDF_OMR")
+        val dbId = scoreDao.insertScore(placeholder)
+
+        return@withContext try {
+            val pfd = android.os.ParcelFileDescriptor.open(
+                pdfFile, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+            val renderer = android.graphics.pdf.PdfRenderer(pfd)
+            val pageCount = renderer.pageCount
+            val allMeasures = mutableListOf<Measure>()
+            var measureOffset = 1
+            var thumbnailBitmap: Bitmap? = null
+
+            for (pageIndex in 0 until pageCount) {
+                val page = renderer.openPage(pageIndex)
+                val bitmap = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
+                page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                page.close()
+                if (pageIndex == 0) thumbnailBitmap = bitmap
+                val pageProgress: ((String) -> Unit)? = onProgress?.let { cb ->
+                    { msg -> cb("Page ${pageIndex + 1}/$pageCount: $msg") }
+                }
+                val omrResult = omr.processPage(bitmap, title, pageProgress)
+                omrResult.score.parts.firstOrNull()?.measures?.forEach { m ->
+                    allMeasures.add(m.copy(number = measureOffset++))
+                }
+            }
+            renderer.close()
+
+            val thumbFile = saveThumbnail(thumbnailBitmap, scoreId)
+            val finalScore = Score(id = scoreId, title = title,
+                parts = listOf(Part("P1", "Cello", "Vc.", measures = allMeasures.ifEmpty {
+                    listOf(Measure(1, elements = emptyList()))
+                })))
+            updateScoreFromOmr(dbId, scoreId, dir, finalScore, "DONE")
+            if (thumbFile != null) {
+                val entity = scoreDao.getScoreById(dbId)
+                entity?.let { scoreDao.updateScore(it.copy(thumbnailPath = thumbFile.absolutePath)) }
+            }
+            Result.success(dbId)
+        } catch (e: Exception) {
+            scoreDao.updateOmrResult(dbId, "FAILED", 0, 0, "C major", 4, 4)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun importMidi(uri: Uri): Result<Long> = withContext(Dispatchers.IO) {
+        try {
+            val midiFile = copyUriToInternal(uri, "mid")
+            val title = midiFile.nameWithoutExtension
+                .replace("_", " ").replace("-", " ")
+            val result = midiFile.inputStream().use { midiParser.parse(it, title) }
+            val entity = saveScoreToStorage(result.score, uri, "MIDI")
             val id = scoreDao.insertScore(entity)
             Result.success(id)
         } catch (e: Exception) {
@@ -142,9 +202,62 @@ class ScoreRepository(private val context: Context) {
             thumbnailPath = null,
             sourceType = sourceType,
             measureCount = measures.size,
+            noteCount = countNotes(score),
             keySignature = firstKey?.let { keySignatureToString(it) } ?: "C major",
             timeSignatureTop = firstTime?.numerator ?: 4,
-            timeSignatureBottom = firstTime?.denominator ?: 4
+            timeSignatureBottom = firstTime?.denominator ?: 4,
+            omrStatus = "NONE"
+        )
+    }
+
+    private fun displayNameFromUri(uri: Uri): String? = try {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (cursor.moveToFirst() && idx >= 0) {
+                cursor.getString(idx)?.substringBeforeLast('.')?.replace('_', ' ')?.replace('-', ' ')
+            } else null
+        }
+    } catch (_: Exception) { null }
+
+    private fun emptyScorePlaceholder(
+        scoreId: String, title: String, originalFile: File, sourceType: String
+    ): ScoreEntity {
+        val dir = getScoreDir(scoreId); dir.mkdirs()
+        val empty = Score(
+            id = scoreId, title = title,
+            parts = listOf(Part("P1", "Cello", "Vc.", measures = listOf(
+                Measure(1, clef = Clef(ClefType.BASS), timeSignature = TimeSignature(4, 4),
+                    keySignature = KeySignature(0), elements = emptyList())
+            )))
+        )
+        val jsonFile = File(dir, "score.json")
+        jsonFile.writeText(json.encodeToString(empty))
+        return ScoreEntity(
+            scoreId = scoreId, title = title, composer = null, arranger = null,
+            workNumber = null, filePathJson = jsonFile.absolutePath,
+            filePathOriginal = originalFile.absolutePath, thumbnailPath = null,
+            sourceType = sourceType, measureCount = 0,
+            keySignature = "C major", timeSignatureTop = 4, timeSignatureBottom = 4,
+            omrStatus = "PROCESSING"
+        )
+    }
+
+    private suspend fun updateScoreFromOmr(
+        dbId: Long, scoreId: String, dir: File, score: Score, status: String
+    ) {
+        val real = score.copy(id = scoreId)
+        val jsonFile = File(dir, "score.json")
+        jsonFile.writeText(json.encodeToString(real))
+        val measures  = real.parts.firstOrNull()?.measures ?: emptyList()
+        val firstKey  = measures.firstOrNull { it.keySignature  != null }?.keySignature
+        val firstTime = measures.firstOrNull { it.timeSignature != null }?.timeSignature
+        scoreDao.updateOmrResult(
+            id = dbId, status = status,
+            measureCount = measures.size,
+            noteCount    = countNotes(real),
+            keySignature = firstKey?.let { keySignatureToString(it) } ?: "C major",
+            tsTop = firstTime?.numerator ?: 4,
+            tsBottom = firstTime?.denominator ?: 4
         )
     }
 
@@ -160,20 +273,6 @@ class ScoreRepository(private val context: Context) {
         }
     }
 
-    private fun renderPdfPageToBitmap(pdfFile: File, pageIndex: Int): Bitmap? {
-        return try {
-            val pfd = ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
-            val renderer = PdfRenderer(pfd)
-            if (renderer.pageCount == 0) { renderer.close(); return null }
-            val page = renderer.openPage(pageIndex.coerceIn(0, renderer.pageCount - 1))
-            val bitmap = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
-            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-            page.close()
-            renderer.close()
-            bitmap
-        } catch (_: Exception) { null }
-    }
-
     private fun saveThumbnail(bitmap: Bitmap?, scoreId: String): File? {
         bitmap ?: return null
         val dir = getScoreDir(scoreId)
@@ -187,6 +286,9 @@ class ScoreRepository(private val context: Context) {
     }
 
     private fun getScoreDir(scoreId: String) = File(context.filesDir, "scores/$scoreId")
+
+    private fun countNotes(score: Score): Int =
+        score.parts.sumOf { p -> p.measures.sumOf { m -> m.elements.count { it is Note } } }
 
     private fun keySignatureToString(key: KeySignature): String {
         val majorNames = arrayOf("C", "G", "D", "A", "E", "B", "F#", "C#", "F", "Bb", "Eb", "Ab", "Db", "Gb", "Cb")

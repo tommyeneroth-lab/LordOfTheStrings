@@ -7,7 +7,7 @@ import com.cellomusic.app.data.db.entity.ScoreEntity
 
 @Database(
     entities = [ScoreEntity::class],
-    version = 1,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

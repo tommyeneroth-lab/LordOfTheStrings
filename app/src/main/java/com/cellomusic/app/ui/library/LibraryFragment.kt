@@ -44,6 +44,12 @@ class LibraryFragment : Fragment() {
         uri?.let { viewModel.importJpeg(it) }
     }
 
+    private val pickMidi = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { viewModel.importMidi(it) }
+    }
+
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentLibraryBinding.inflate(inflater, container, false)
         setHasOptionsMenu(true)
@@ -75,7 +81,7 @@ class LibraryFragment : Fragment() {
     }
 
     private fun showImportDialog() {
-        val options = arrayOf("Import MusicXML", "Import PDF", "Import JPEG/Photo", "Take Photo")
+        val options = arrayOf("Import MusicXML", "Import PDF", "Import JPEG/Photo", "Import MIDI", "Take Photo")
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Import Score")
             .setItems(options) { _, which ->
@@ -83,7 +89,8 @@ class LibraryFragment : Fragment() {
                     0 -> pickMusicXml.launch("application/xml")
                     1 -> pickPdf.launch("application/pdf")
                     2 -> pickJpeg.launch("image/jpeg")
-                    3 -> openCamera()
+                    3 -> pickMidi.launch("*/*")
+                    4 -> openCamera()
                 }
             }
             .show()
@@ -103,9 +110,20 @@ class LibraryFragment : Fragment() {
         }
 
         viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.omrProgress.collect { progress ->
+                if (progress != null) {
+                    binding.omrProgressOverlay.visibility = android.view.View.VISIBLE
+                    binding.tvOmrStep.text = progress
+                } else {
+                    binding.omrProgressOverlay.visibility = android.view.View.GONE
+                }
+            }
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
             viewModel.importStatus.collect { status ->
                 status?.let {
-                    android.widget.Toast.makeText(requireContext(), it, android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(requireContext(), it, android.widget.Toast.LENGTH_LONG).show()
                 }
             }
         }

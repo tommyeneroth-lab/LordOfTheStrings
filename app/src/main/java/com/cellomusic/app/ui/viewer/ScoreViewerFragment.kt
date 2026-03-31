@@ -29,6 +29,11 @@ class ScoreViewerFragment : Fragment() {
 
         setupPlaybackControls()
         observeViewModel()
+
+        // Tap any note to move the cursor and seek playback to that position
+        binding.scoreCanvas.onNoteClicked = { measureNum, noteIdx ->
+            viewModel.seekToNote(measureNum, noteIdx)
+        }
     }
 
     private fun setupPlaybackControls() {
@@ -52,6 +57,18 @@ class ScoreViewerFragment : Fragment() {
             if (fromUser) {
                 viewModel.setTempoMultiplier(value)
                 binding.tvTempoValue.text = "%.0f%%".format(value * 100)
+            }
+        }
+
+        // Volume slider (0..1)
+        binding.sliderVolume.valueFrom = 0f
+        binding.sliderVolume.valueTo = 1f
+        binding.sliderVolume.value = 1f
+        binding.sliderVolume.stepSize = 0.05f
+        binding.sliderVolume.addOnChangeListener { _, value, fromUser ->
+            if (fromUser) {
+                viewModel.setVolume(value)
+                binding.tvVolumeValue.text = "%.0f%%".format(value * 100)
             }
         }
 
@@ -79,12 +96,11 @@ class ScoreViewerFragment : Fragment() {
         }
 
         viewLifecycleOwner.lifecycleScope.launch {
-            viewModel.currentMeasure.collect { measure ->
-                binding.scoreCanvas.highlightMeasure(measure)
-                binding.tvMeasureInfo.text = "Measure $measure"
-                // Update seekbar without triggering listener
+            viewModel.currentNotePosition.collect { (measureNum, noteIdx) ->
+                binding.scoreCanvas.highlightNote(measureNum, noteIdx)
+                binding.tvMeasureInfo.text = "Measure $measureNum"
                 if (!binding.seekbarProgress.isPressed) {
-                    binding.seekbarProgress.progress = (measure - 1).coerceAtLeast(0)
+                    binding.seekbarProgress.progress = (measureNum - 1).coerceAtLeast(0)
                 }
             }
         }

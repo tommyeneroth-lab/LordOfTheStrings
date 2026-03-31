@@ -31,7 +31,9 @@ class TunerGaugeView @JvmOverloads constructor(
 
     private val dp = context.resources.displayMetrics.density
 
-    private var needleAngle: Float = 0f     // -90° = far flat, 0° = in tune, +90° = far sharp
+    @get:JvmName("getNeedleAngle")
+    @set:JvmName("setNeedleAngle")
+    var needleAngle: Float = 0f     // -90° = far flat, 0° = in tune, +90° = far sharp
         set(value) {
             field = value
             invalidate()
@@ -72,10 +74,6 @@ class TunerGaugeView @JvmOverloads constructor(
             duration = NEEDLE_ANIM_DURATION
             start()
         }
-    }
-
-    fun setNeedleAngle(angle: Float) {
-        needleAngle = angle
     }
 
     fun reset() {

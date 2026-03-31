@@ -81,6 +81,15 @@ class ScoreCanvasView @JvmOverloads constructor(
         color = Color.argb(80, 0, 120, 255)
         style = Paint.Style.FILL
     }
+    private val cursorBoxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(60, 30, 120, 255)   // semi-transparent blue fill
+        style = Paint.Style.FILL
+    }
+    private val cursorBoxStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(180, 0, 90, 220)    // slightly opaque blue border
+        strokeWidth = 1.5f * dp
+        style = Paint.Style.STROKE
+    }
     private val hairpinPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.BLACK
         strokeWidth = 1.5f * dp
@@ -97,6 +106,14 @@ class ScoreCanvasView @JvmOverloads constructor(
     private var measures: List<Measure> = emptyList()
     private var measureLayouts: List<MeasureLayout> = emptyList()
     private var currentMeasureHighlight: Int = -1
+    private var currentNoteHighlight: Int = -1   // element index within measure
+
+    // Note layout cache — populated in drawMeasure, used for tap-to-seek
+    private data class NoteLayoutInfo(val contentX: Float, val noteStep: Float, val noteCount: Int)
+    private val noteLayoutCache = mutableMapOf<Int, NoteLayoutInfo>() // measureNumber → layout
+
+    /** Called when the user taps a note. Arguments: measureNumber, noteIndex. */
+    var onNoteClicked: ((measureNumber: Int, noteIndex: Int) -> Unit)? = null
 
     // Zoom/pan state
     private var scaleFactor = 1.0f
@@ -118,8 +135,17 @@ class ScoreCanvasView @JvmOverloads constructor(
         invalidate()
     }
 
+    /** Called by playback to highlight the currently-playing note. */
+    fun highlightNote(measureNumber: Int, noteIndex: Int) {
+        currentMeasureHighlight = measureNumber
+        currentNoteHighlight = noteIndex
+        invalidate()
+    }
+
+    /** Legacy measure-level highlight (used when playback is stopped). */
     fun highlightMeasure(measureNumber: Int) {
         currentMeasureHighlight = measureNumber
+        currentNoteHighlight = -1
         invalidate()
     }
 
@@ -229,10 +255,7 @@ class ScoreCanvasView @JvmOverloads constructor(
         val x = layout.x; val y = layout.y
         val w = layout.width
 
-        // Draw cursor highlight
-        if (m.number == currentMeasureHighlight) {
-            canvas.drawRect(x, y - STAFF_SPACING, x + w, y + STAFF_HEIGHT + STAFF_SPACING, cursorPaint)
-        }
+        // (cursor line drawn after note positions are calculated — see below)
 
         // Draw 5 staff lines
         for (line in 0..4) {
@@ -271,6 +294,25 @@ class ScoreCanvasView @JvmOverloads constructor(
         val noteAreaWidth = (x + w - MARGIN_RIGHT / 4 - contentX).coerceAtLeast(20f * dp)
         val noteCount = m.elements.size.coerceAtLeast(1)
         val noteStep = noteAreaWidth / noteCount
+
+        // Cache layout for tap detection
+        noteLayoutCache[m.number] = NoteLayoutInfo(contentX, noteStep, m.elements.size)
+
+        // Draw note-level cursor — semi-transparent box around the active note column
+        if (m.number == currentMeasureHighlight && m.elements.isNotEmpty()) {
+            val ni = if (currentNoteHighlight >= 0) currentNoteHighlight.coerceIn(0, m.elements.size - 1)
+                     else 0
+            val cursorCenterX = contentX + ni * noteStep + noteStep / 2f
+            val halfW = (noteStep / 2f).coerceAtLeast(NOTE_HEAD_W)
+            val boxRect = android.graphics.RectF(
+                cursorCenterX - halfW,
+                y - STAFF_SPACING,
+                cursorCenterX + halfW,
+                y + STAFF_HEIGHT + STAFF_SPACING
+            )
+            canvas.drawRoundRect(boxRect, 4f * dp, 4f * dp, cursorBoxPaint)
+            canvas.drawRoundRect(boxRect, 4f * dp, 4f * dp, cursorBoxStrokePaint)
+        }
 
         // Draw directions (dynamics, text)
         for (dir in m.directions) {
@@ -904,6 +946,27 @@ class ScoreCanvasView @JvmOverloads constructor(
             translateX -= dx
             translateY -= dy
             invalidate()
+            return true
+        }
+
+        override fun onSingleTapUp(e: MotionEvent): Boolean {
+            // Convert screen coordinates to score canvas coordinates (undo scale + translate)
+            val scoreX = (e.x - translateX) / scaleFactor
+            val scoreY = (e.y - translateY) / scaleFactor
+
+            // Find which measure was tapped
+            val layout = measureLayouts.firstOrNull { l ->
+                scoreX >= l.x && scoreX <= l.x + l.width &&
+                scoreY >= l.y - STAFF_SPACING && scoreY <= l.y + STAFF_HEIGHT + STAFF_SPACING
+            } ?: return false
+
+            val info = noteLayoutCache[layout.measure.number] ?: return false
+            if (info.noteCount == 0) return false
+
+            val noteIdx = ((scoreX - info.contentX) / info.noteStep)
+                .toInt().coerceIn(0, info.noteCount - 1)
+
+            onNoteClicked?.invoke(layout.measure.number, noteIdx)
             return true
         }
     }

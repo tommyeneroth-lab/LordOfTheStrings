@@ -25,5 +25,8 @@ data class ScoreEntity(
     val timeSignatureBottom: Int = 4,
     val lastMeasure: Int = 1,      // last viewed/played measure for resume
     val isFavorite: Boolean = false,
-    val tags: String = ""          // comma-separated tags
+    val tags: String = "",         // comma-separated tags
+    /** "NONE" = not OMR | "PROCESSING" = OMR running | "DONE" = OMR ok | "FAILED" = OMR error */
+    val omrStatus: String = "NONE",
+    val noteCount: Int = 0
 )

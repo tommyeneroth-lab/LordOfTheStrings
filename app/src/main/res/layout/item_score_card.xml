@@ -35,6 +35,37 @@
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintEnd_toEndOf="parent" />
 
+        <!-- OMR processing spinner (visible while omrStatus == PROCESSING) -->
+        <ProgressBar
+            android:id="@+id/omr_spinner"
+            style="?android:attr/progressBarStyleSmall"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_margin="6dp"
+            android:indeterminate="true"
+            android:indeterminateTint="@color/white"
+            android:background="#88000000"
+            android:padding="4dp"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="@id/iv_thumbnail"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <!-- Green checkmark (visible when omrStatus == DONE) -->
+        <TextView
+            android:id="@+id/tv_omr_done"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_margin="6dp"
+            android:gravity="center"
+            android:text="✓"
+            android:textColor="@color/white"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:background="#CC2E7D32"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="@id/iv_thumbnail"
+            app:layout_constraintEnd_toEndOf="parent" />
+
         <!-- Favorite star -->
         <ImageView
             android:id="@+id/iv_favorite"
@@ -97,6 +128,14 @@
                     android:layout_height="wrap_content"
                     android:textSize="11sp"
                     android:textColor="@color/secondary_text" />
+
+                <TextView
+                    android:id="@+id/tv_note_count"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="11sp"
+                    android:textColor="@color/secondary_text"
+                    android:layout_marginStart="6dp" />
 
             </LinearLayout>
 

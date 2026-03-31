@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.annotation.RequiresApi
 import com.cellomusic.app.domain.model.Score
+import android.media.MediaPlayer
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,9 +32,16 @@ class ScorePlayer(private val context: Context) {
     private val _playbackPosition = MutableStateFlow(0f)  // 0..1
     val playbackPosition: StateFlow<Float> = _playbackPosition
 
+    // (measureNumber, elementIndexInMeasure) — for note-level cursor
+    private val _currentNotePosition = MutableStateFlow(Pair(1, 0))
+    val currentNotePosition: StateFlow<Pair<Int, Int>> = _currentNotePosition
+
     private val encoder = MidiScoreEncoder()
+    private var volumeMultiplier: Float = 1.0f
+    private var mediaPlayerRef: MediaPlayer? = null
     private var encodeResult: MidiScoreEncoder.EncodeResult? = null
     private var tempoMultiplier: Float = 1.0f
+    private var currentScore: Score? = null
     private var pausedAtTick: Long = 0L
     private var playbackScope: CoroutineScope? = null
 
@@ -43,18 +51,26 @@ class ScorePlayer(private val context: Context) {
 
     fun setTempoMultiplier(multiplier: Float) {
         tempoMultiplier = multiplier.coerceIn(0.25f, 2.0f)
-        // If playing, re-encode and seek to current position
-        encodeResult?.let {
-            val currentTick = if (_playbackState.value == PlaybackState.PLAYING) {
-                // Estimate current tick from current measure
-                val measureNum = _currentMeasure.value
-                it.measureStartTicks[measureNum] ?: 0L
-            } else pausedAtTick
-            stop()
+        val score = currentScore ?: return
+        val wasPlaying = _playbackState.value == PlaybackState.PLAYING
+        val savedTick = if (wasPlaying) estimateCurrentTick() else pausedAtTick
+        if (wasPlaying) stopPlayback()
+        encodeResult = encoder.encode(score, tempoMultiplier)
+        pausedAtTick = savedTick
+        if (wasPlaying) {
+            val result = encodeResult ?: return
+            _playbackState.value = PlaybackState.PLAYING
+            resumeFrom(result, savedTick)
         }
     }
 
+    fun setVolume(volume: Float) {
+        volumeMultiplier = volume.coerceIn(0f, 1f)
+        mediaPlayerRef?.setVolume(volumeMultiplier, volumeMultiplier)
+    }
+
     fun loadScore(score: Score): Boolean {
+        currentScore = score
         encodeResult = encoder.encode(score, tempoMultiplier)
         return encodeResult != null
     }
@@ -82,6 +98,7 @@ class ScorePlayer(private val context: Context) {
         stopPlayback()
         _playbackState.value = PlaybackState.STOPPED
         _currentMeasure.value = 1
+        _currentNotePosition.value = Pair(1, 0)
         _playbackPosition.value = 0f
     }
 
@@ -91,7 +108,32 @@ class ScorePlayer(private val context: Context) {
         _currentMeasure.value = measureNumber
         if (_playbackState.value == PlaybackState.PLAYING) {
             stopPlayback()
-            playWithMidiApi(result, pausedAtTick)
+            resumeFrom(result, pausedAtTick)
+        }
+    }
+
+    /** Seek to the exact tick of a specific note and restart playback from there. */
+    fun seekToNote(measureNumber: Int, noteIndex: Int) {
+        val result = encodeResult ?: return
+        // Find the tick for this specific note (reverse-lookup noteTickToPosition)
+        val tick = result.noteTickToPosition.entries
+            .firstOrNull { it.value == Pair(measureNumber, noteIndex) }?.key
+            ?: result.measureStartTicks[measureNumber]
+            ?: 0L
+        pausedAtTick = tick
+        _currentMeasure.value = measureNumber
+        _currentNotePosition.value = Pair(measureNumber, noteIndex)
+        if (_playbackState.value == PlaybackState.PLAYING) {
+            stopPlayback()
+            resumeFrom(result, tick)
+        }
+    }
+
+    private fun resumeFrom(result: MidiScoreEncoder.EncodeResult, tick: Long) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            playWithMidiApi(result, tick)
+        } else {
+            playWithMidiFile(result, tick)
         }
     }
 
@@ -99,6 +141,9 @@ class ScorePlayer(private val context: Context) {
         playbackScope?.cancel()
         playbackScope = null
         sendAllNotesOff()
+        try { mediaPlayerRef?.stop() } catch (_: Exception) {}
+        try { mediaPlayerRef?.release() } catch (_: Exception) {}
+        mediaPlayerRef = null
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
@@ -115,7 +160,7 @@ class ScorePlayer(private val context: Context) {
                 val devices = midiManager?.getDevicesForTransport(MidiManager.TRANSPORT_MIDI_BYTE_STREAM)
                 // Filter for output (playback) devices
                 val synthDevice = devices?.firstOrNull { info ->
-                    info.outputPortCount > 0
+                    info.inputPortCount > 0
                 }
 
                 if (synthDevice != null) {
@@ -126,6 +171,8 @@ class ScorePlayer(private val context: Context) {
                         playWithMidiFile(result, startTick)
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e   // always re-throw cancellation
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) { _playbackState.value = PlaybackState.STOPPED }
             }
@@ -153,7 +200,7 @@ class ScorePlayer(private val context: Context) {
         val prevTimeMs = System.currentTimeMillis()
 
         for (event in filteredEvents) {
-            if (!isActive) break
+            currentCoroutineContext().ensureActive()
 
             val eventMs = encoder.ticksToMs(event.absoluteTick, result.tempoMap)
             val startMs = encoder.ticksToMs(startTick, result.tempoMap)
@@ -163,10 +210,20 @@ class ScorePlayer(private val context: Context) {
                 delay(delayMs)
             }
 
+            // Update note-level cursor on first NOTE_ON at each new tick
+            if (event.type == MidiScoreEncoder.MidiEventType.NOTE_ON) {
+                result.noteTickToPosition[event.absoluteTick]?.let { (mNum, eIdx) ->
+                    withContext(Dispatchers.Main) {
+                        _currentNotePosition.value = Pair(mNum, eIdx)
+                    }
+                }
+            }
+
             // Send MIDI event
+            val scaledVel = (event.data2 * volumeMultiplier).toInt().coerceIn(1, 127)
             val bytes = when (event.type) {
                 MidiScoreEncoder.MidiEventType.NOTE_ON ->
-                    byteArrayOf((0x90 or event.channel).toByte(), event.data1.toByte(), event.data2.toByte())
+                    byteArrayOf((0x90 or event.channel).toByte(), event.data1.toByte(), scaledVel.toByte())
                 MidiScoreEncoder.MidiEventType.NOTE_OFF ->
                     byteArrayOf((0x80 or event.channel).toByte(), event.data1.toByte(), 0)
                 MidiScoreEncoder.MidiEventType.PROGRAM_CHANGE ->
@@ -204,7 +261,7 @@ class ScorePlayer(private val context: Context) {
         val midiFile = File(context.cacheDir, "playback_${System.currentTimeMillis()}.mid")
         writeMidiFile(result, midiFile)
 
-        val mediaPlayer = android.media.MediaPlayer().apply {
+        val mediaPlayer = MediaPlayer().apply {
             setDataSource(midiFile.absolutePath)
             prepare()
         }
@@ -213,6 +270,8 @@ class ScorePlayer(private val context: Context) {
         val startMs = encoder.ticksToMs(startTick, result.tempoMap).toInt()
         if (startMs > 0) mediaPlayer.seekTo(startMs)
 
+        mediaPlayerRef = mediaPlayer
+        mediaPlayer.setVolume(volumeMultiplier, volumeMultiplier)
         playbackScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
         mediaPlayer.start()
 
@@ -225,12 +284,26 @@ class ScorePlayer(private val context: Context) {
                     .filter { it.value <= currentTick }
                     .maxByOrNull { it.value }
                     ?.key ?: 1
+                // Binary search for the most recent note at or before currentTick
+                val ticks = result.sortedNoteTicks
+                if (ticks.isNotEmpty()) {
+                    var lo = 0; var hi = ticks.size - 1; var idx = -1
+                    while (lo <= hi) {
+                        val mid = (lo + hi) ushr 1
+                        if (ticks[mid] <= currentTick) { idx = mid; lo = mid + 1 }
+                        else hi = mid - 1
+                    }
+                    if (idx >= 0) {
+                        val notePos = result.noteTickToPosition[ticks[idx]]
+                        if (notePos != null) _currentNotePosition.value = notePos
+                    }
+                }
                 _currentMeasure.value = measureNum
                 _playbackPosition.value = if (result.totalTicks > 0) {
                     currentTick.toFloat() / result.totalTicks
                 } else 0f
 
-                delay(50L) // 20 Hz update rate
+                delay(16L) // ~60 Hz update rate for smooth cursor
             }
             _playbackState.value = PlaybackState.STOPPED
             mediaPlayer.release()

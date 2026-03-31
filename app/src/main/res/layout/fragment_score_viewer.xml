@@ -153,6 +153,41 @@
 
         </LinearLayout>
 
+        <!-- Volume control -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="4dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Volume:"
+                android:textSize="13sp"
+                android:paddingEnd="8dp" />
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/slider_volume"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:valueFrom="0.0"
+                android:valueTo="1.0"
+                android:value="1.0"
+                android:stepSize="0.05" />
+
+            <TextView
+                android:id="@+id/tv_volume_value"
+                android:layout_width="50dp"
+                android:layout_height="wrap_content"
+                android:text="100%"
+                android:textSize="13sp"
+                android:gravity="end" />
+
+        </LinearLayout>
+
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

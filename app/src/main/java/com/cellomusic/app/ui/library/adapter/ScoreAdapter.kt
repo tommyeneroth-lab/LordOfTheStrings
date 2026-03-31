@@ -34,7 +34,8 @@ class ScoreAdapter(
         fun bind(entity: ScoreEntity) {
             binding.tvTitle.text = entity.title
             binding.tvComposer.text = entity.composer ?: "Unknown composer"
-            binding.tvMeasures.text = if (entity.measureCount > 0) "${entity.measureCount} measures" else ""
+            binding.tvMeasures.text = if (entity.measureCount > 0) "${entity.measureCount} meas." else ""
+            binding.tvNoteCount.text = if (entity.noteCount > 0) "· ${entity.noteCount} notes" else ""
             binding.tvDate.text = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
                 .format(Date(entity.dateAdded))
             binding.tvKeySignature.text = entity.keySignature
@@ -56,9 +57,16 @@ class ScoreAdapter(
             binding.tvSourceType.text = when (entity.sourceType) {
                 "MUSICXML" -> "XML"
                 "JPEG_OMR" -> "Photo"
-                "PDF_OMR" -> "PDF"
+                "PDF_OMR"  -> "PDF"
+                "MIDI"     -> "MIDI"
                 else -> ""
             }
+
+            // OMR status indicator
+            binding.omrSpinner.visibility = if (entity.omrStatus == "PROCESSING")
+                android.view.View.VISIBLE else android.view.View.GONE
+            binding.tvOmrDone.visibility = if (entity.omrStatus == "DONE")
+                android.view.View.VISIBLE else android.view.View.GONE
 
             binding.root.setOnClickListener { onScoreClick(entity) }
             binding.root.setOnLongClickListener {

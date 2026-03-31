@@ -35,7 +35,9 @@ class MidiScoreEncoder {
         val events: List<MidiEvent>,
         val tempoMap: List<TempoEvent>,
         val totalTicks: Long,
-        val measureStartTicks: Map<Int, Long>  // measureNumber -> absoluteTick
+        val measureStartTicks: Map<Int, Long>,             // measureNumber -> absoluteTick
+        val noteTickToPosition: Map<Long, Pair<Int, Int>>, // tick -> (measureNumber, elementIndex)
+        val sortedNoteTicks: List<Long>                    // sorted list of all note-on ticks for binary search
     )
 
     fun encode(score: Score, tempoMultiplier: Float = 1.0f): EncodeResult {
@@ -57,8 +59,19 @@ class MidiScoreEncoder {
             // Flatten repeats
             val flatMeasures = flattenRepeats(part.measures)
 
+            val noteTickToPositionMap = mutableMapOf<Long, Pair<Int, Int>>()
+
             for (measure in flatMeasures) {
                 measureStartTicks[measure.number] = absoluteTick
+                // Record note positions for cursor tracking
+                for ((elemIdx, element) in measure.elements.withIndex()) {
+                    val elemStartTick = absoluteTick + when (element) {
+                        is Note -> element.startTick.toLong()
+                        is ChordNote -> element.startTick.toLong()
+                        else -> continue
+                    }
+                    noteTickToPositionMap.putIfAbsent(elemStartTick, Pair(measure.number, elemIdx))
+                }
 
                 // Handle clef/time/key changes (no audio effect, tracked for rendering)
                 measure.timeSignature?.let { currentTimeSignature = it }
@@ -182,11 +195,13 @@ class MidiScoreEncoder {
                 events = events.sortedBy { it.absoluteTick },
                 tempoMap = tempoMap.ifEmpty { listOf(TempoEvent(0L, DEFAULT_BPM)) },
                 totalTicks = absoluteTick,
-                measureStartTicks = measureStartTicks
+                measureStartTicks = measureStartTicks,
+                noteTickToPosition = noteTickToPositionMap,
+                sortedNoteTicks = noteTickToPositionMap.keys.sorted()
             )
         }
 
-        return EncodeResult(emptyList(), listOf(TempoEvent(0L, DEFAULT_BPM)), 0L, emptyMap())
+        return EncodeResult(emptyList(), listOf(TempoEvent(0L, DEFAULT_BPM)), 0L, emptyMap(), emptyMap(), emptyList())
     }
 
     private fun calculateNoteOffTick(durationTicks: Int, note: Note): Int {
