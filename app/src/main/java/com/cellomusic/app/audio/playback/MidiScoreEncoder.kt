@@ -185,7 +185,19 @@ class MidiScoreEncoder {
                     }
                 }
 
-                absoluteTick += ticksPerMeasure
+                // Advance by the larger of: the time-signature measure length OR the actual
+                // end tick of the last note in the measure.  This prevents notes from being
+                // crammed into a shorter window than their durations require (which causes
+                // out-of-order playback when OMR over-fills a measure).
+                val lastNoteTick = measure.elements.maxOfOrNull { el ->
+                    when (el) {
+                        is Note -> el.startTick + el.duration.toTicksWithDots(el.dotCount, TICKS_PER_QUARTER)
+                        is ChordNote -> el.startTick + el.duration.toTicksWithDots(el.dotCount, TICKS_PER_QUARTER)
+                        is Rest -> el.startTick + el.duration.toTicksWithDots(el.dotCount, TICKS_PER_QUARTER)
+                        else -> 0
+                    }
+                } ?: 0
+                absoluteTick += maxOf(ticksPerMeasure, lastNoteTick)
             }
 
             // All notes off at end

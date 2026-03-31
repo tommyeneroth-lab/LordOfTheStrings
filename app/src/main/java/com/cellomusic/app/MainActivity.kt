@@ -33,6 +33,12 @@ class MainActivity : AppCompatActivity() {
                     binding.bottomNavigation.visibility = android.view.View.GONE
                 }
             }
+            // Force portrait on splash, allow all orientations elsewhere
+            if (destination.id == R.id.splashFragment) {
+                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            } else {
+                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
         }
     }
 }

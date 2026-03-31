@@ -352,29 +352,75 @@ class ScoreCanvasView @JvmOverloads constructor(
     }
 
     private fun drawClef(canvas: Canvas, clef: Clef, x: Float, y: Float): Float {
-        val clefText = when (clef.type) {
-            ClefType.BASS -> "𝄢"      // Unicode bass clef
-            ClefType.TENOR -> "𝄡"     // C clef (we'll use text)
-            ClefType.TREBLE -> "𝄞"    // Treble clef
-            else -> "?"
+        return when (clef.type) {
+            ClefType.BASS -> drawBassClef(canvas, x, y)
+            ClefType.TREBLE -> drawTrebleClef(canvas, x, y)
+            ClefType.TENOR -> drawTenorClef(canvas, x, y)
+            else -> {
+                drawBassClef(canvas, x, y)
+            }
         }
-        val paint = Paint(textPaint).apply { textSize = STAFF_SPACING * 4f }
+    }
 
-        when (clef.type) {
-            ClefType.BASS -> {
-                // Draw bass clef F on 4th line (index 1 from top = line 3)
-                canvas.drawText("F:", x, y + STAFF_SPACING * 2.5f, paint.apply { textSize = 16f * dp })
-            }
-            ClefType.TENOR -> {
-                // C clef bracket on 4th line
-                canvas.drawText("C", x, y + STAFF_SPACING * 3f, paint.apply { textSize = 14f * dp })
-            }
-            ClefType.TREBLE -> {
-                canvas.drawText("G", x, y + STAFF_SPACING * 4f, paint.apply { textSize = 18f * dp })
-            }
-            else -> {}
+    /**
+     * Draws a proper bass clef (F clef) using Canvas paths.
+     * The bass clef consists of:
+     *  - A curved "C" body anchored on the 4th line (2nd from top, position index 1)
+     *  - A dot above and below the 4th line
+     */
+    private fun drawBassClef(canvas: Canvas, x: Float, y: Float): Float {
+        val sp = STAFF_SPACING
+        // 4th line = top + 1*sp (staff line index 1)
+        val fLine = y + sp   // y of the F line (4th line of bass clef = 2nd from top)
+
+        val paint = Paint(notePaint).apply { style = Paint.Style.FILL_AND_STROKE; strokeWidth = 1.5f * dp }
+        val strokeOnly = Paint(staffPaint).apply { strokeWidth = 2f * dp; style = Paint.Style.STROKE }
+
+        // Body: a backwards "C" shape from fLine spanning down ~2 staff spaces
+        val bodyPath = Path()
+        val cx = x + sp * 0.8f
+        bodyPath.moveTo(cx, fLine - sp * 0.15f)
+        // Top curve
+        bodyPath.cubicTo(
+            cx + sp * 0.9f, fLine - sp * 1.1f,
+            x - sp * 0.05f, fLine + sp * 1.0f,
+            cx, fLine + sp * 2.1f
+        )
+        canvas.drawPath(bodyPath, strokeOnly)
+
+        // Dot above the 4th line (between 4th and 5th = position between line1 and line2)
+        val dotX = cx + sp * 1.0f
+        canvas.drawCircle(dotX, fLine - sp * 0.45f, sp * 0.18f, paint)
+        // Dot below the 4th line (between 3rd and 4th = position between line1 and line0... wait)
+        canvas.drawCircle(dotX, fLine + sp * 0.45f, sp * 0.18f, paint)
+
+        return x + sp * 2.2f
+    }
+
+    /**
+     * Draws a treble clef (G clef) using the Unicode symbol at a large font size.
+     * The Unicode character 𝄞 (U+1D11E) is in all Noto fonts on Android 6+.
+     */
+    private fun drawTrebleClef(canvas: Canvas, x: Float, y: Float): Float {
+        val paint = Paint(textPaint).apply {
+            textSize = STAFF_SPACING * 7f
+            textAlign = Paint.Align.LEFT
         }
-        return x + 24f * dp
+        // Baseline positioned so the G sits on line 2 from bottom (2nd line = position 6)
+        canvas.drawText("𝄞", x, y + STAFF_SPACING * 6.0f, paint)
+        return x + STAFF_SPACING * 2.5f
+    }
+
+    /**
+     * Draws a tenor clef (C clef on 4th line) using the Unicode symbol.
+     */
+    private fun drawTenorClef(canvas: Canvas, x: Float, y: Float): Float {
+        val paint = Paint(textPaint).apply {
+            textSize = STAFF_SPACING * 4.5f
+            textAlign = Paint.Align.LEFT
+        }
+        canvas.drawText("𝄡", x, y + STAFF_SPACING * 4f, paint)
+        return x + STAFF_SPACING * 2.2f
     }
 
     private fun drawKeySignature(canvas: Canvas, key: KeySignature, x: Float, y: Float): Float {
@@ -454,13 +500,12 @@ class ScoreCanvasView @JvmOverloads constructor(
 
         return when (clef.type) {
             ClefType.BASS -> {
-                // Bass clef: G3 is on top line (position 0), B2 on 4th space, C2 bottom
-                // Middle C (C4) = 1 ledger line above = position -2
-                // G3 = position 0 (top line)
-                // Reference: G3 = MIDI 55, each step = half position
-                val g3 = 55
-                val stepsFromG3 = noteToStep(midiNote) - noteToStep(g3)
-                (-stepsFromG3).toFloat()
+                // Bass clef top line (5th line) = A3 = MIDI 57.
+                // Position 0 = top line, 2 = 4th line, 4 = middle line, 6 = 2nd line, 8 = bottom line.
+                // Each integer step = one diatonic position (line or space), going downward.
+                val a3 = 57
+                val stepsFromA3 = noteToStep(midiNote) - noteToStep(a3)
+                (-stepsFromA3).toFloat()
             }
             ClefType.TENOR -> {
                 // Tenor clef: Middle C (C4) on 4th line = position 6

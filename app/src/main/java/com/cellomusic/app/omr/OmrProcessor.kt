@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 import kotlin.math.*
+import kotlin.math.roundToInt
 
 /**
  * Optical Music Recognition processor for cello scores.
@@ -84,6 +85,11 @@ class OmrProcessor(private val context: Context) {
 
         val noStaff = removeStaffLines(binary, imgW, imgH, staffSystems)
 
+        onProgress?.invoke("Detecting barlines…")
+        // Use the raw binary (staff lines intact) — barlines are fully continuous there,
+        // never partially erased the way noStaff can be.
+        val barlineMap = detectBarlines(binary, imgW, imgH, staffSystems)
+
         onProgress?.invoke("Separating noteheads from beams and stems…")
         val noteheadOnly = separateNoteheads(noStaff, imgW, imgH, staffSystems)
 
@@ -95,7 +101,7 @@ class OmrProcessor(private val context: Context) {
 
         val noteCount = symbols.count { it.type in NOTEHEAD_TYPES }
         onProgress?.invoke("Building score — $noteCount note(s) found…")
-        val score = buildScore(symbols, staffSystems, title, noStaff, imgW, imgH)
+        val score = buildScore(symbols, staffSystems, title, barlineMap, noStaff, imgW, imgH)
 
         val confidence = (noteCount.toFloat() / max(1, staffSystems.size * 4)).coerceIn(0f, 1f)
         onProgress?.invoke("Done!  ${staffSystems.size} staff row(s), $noteCount note(s) recognised")
@@ -334,20 +340,74 @@ class OmrProcessor(private val context: Context) {
         return result
     }
 
+    // ── Barline detection (before stem removal erases them) ──────────────────
+
+    /**
+     * Detects barlines by scanning every column of the RAW BINARY (staff lines intact).
+     *
+     * A barline column must have black pixels covering ≥ 55% of the staff height.
+     * In the raw binary, a barline runs fully from top line to bottom line (~100%),
+     * while noteheads cover at most one staff-space (~25%), so 55% is a clean separator.
+     *
+     * We scan slightly wider than sys.left/right to catch end barlines at the edges.
+     * Adjacent barline columns are merged into a single position.
+     */
+    private fun detectBarlines(
+        binary: Array<BooleanArray>, w: Int, h: Int,
+        systems: List<StaffSystem>
+    ): Map<StaffSystem, List<Int>> {
+        val result = mutableMapOf<StaffSystem, List<Int>>()
+        for (sys in systems) {
+            // Scan from top to bottom of the staff band (between first and last line)
+            val scanTop = sys.top.coerceAtLeast(0)
+            val scanBot = sys.bottom.coerceAtMost(h - 1)
+            val staffH  = (scanBot - scanTop + 1).coerceAtLeast(1)
+            val threshold = (staffH * 0.55f).toInt()
+
+            // Widen scan by a small margin to catch barlines at system edges
+            val xLeft  = (sys.left - 5).coerceAtLeast(0)
+            val xRight = (sys.right + 5).coerceAtMost(w - 1)
+
+            val barlineCols = mutableListOf<Int>()
+            for (x in xLeft..xRight) {
+                var count = 0
+                for (y in scanTop..scanBot) {
+                    if (binary[y][x]) count++
+                }
+                if (count >= threshold) barlineCols.add(x)
+            }
+
+            // Cluster adjacent columns → one barline per cluster (centroid)
+            val barlines = mutableListOf<Int>()
+            var i = 0
+            while (i < barlineCols.size) {
+                var j = i
+                while (j < barlineCols.size - 1 && barlineCols[j + 1] - barlineCols[j] <= 8) j++
+                // Use left edge of cluster as the barline x (for bounds splitting)
+                barlines.add(barlineCols[i])
+                i = j + 1
+            }
+            result[sys] = barlines
+        }
+        return result
+    }
+
     // ── Beam and stem removal ────────────────────────────────────────────────
 
     /**
-     * Produces a copy of [noStaff] with beams and stems erased so that
-     * connected-component analysis sees individual noteheads instead of large
-     * merged blobs.
+     * Per-pixel beam/stem classification.
      *
-     * Pass 1 – beams: scan every row for horizontal runs wider than 2.5×sp.
-     *   At the center column of each such run measure the total vertical extent;
-     *   if it is ≤ 0.55×sp the blob is flat → it is a beam → erase it.
+     * For every black pixel we measure two things in the ORIGINAL noStaff image:
+     *   hWidth = length of the unbroken horizontal run through (x, y)
+     *   vHeight = length of the unbroken vertical run through (x, y)
      *
-     * Pass 2 – stems: scan every column for vertical runs taller than 1.5×sp.
-     *   Find the minimum pixel-width across all rows of that run; if the minimum
-     *   is ≤ 0.4×sp it is a thin vertical line → it is a stem → erase it.
+     * Beam pixel:  hWidth > 1.8×sp  AND  vHeight ≤ 0.5×sp   → erase
+     * Stem pixel:  hWidth ≤ 0.4×sp  AND  vHeight > 1.2×sp   → erase
+     *
+     * A notehead pixel has hWidth ≈ 0.7–1.0×sp and vHeight ≈ 0.6–0.9×sp,
+     * so it satisfies NEITHER condition and is always preserved.
+     * The notehead–stem junction is also safe: at the junction row the horizontal
+     * run includes the notehead width (≫ 0.4×sp), so that row is not stem-erased.
      */
     private fun separateNoteheads(
         noStaff: Array<BooleanArray>, w: Int, h: Int,
@@ -355,61 +415,34 @@ class OmrProcessor(private val context: Context) {
     ): Array<BooleanArray> {
         val result = Array(h) { y -> noStaff[y].copyOf() }
         val avgSp = if (systems.isEmpty()) 10f else systems.map { it.spacing }.average().toFloat()
+        val beamHThresh = avgSp * 1.8f
+        val beamVThresh = avgSp * 0.45f
+        val stemHThresh = avgSp * 0.5f   // wider: catches anti-aliased stems in clean PDFs
+        val stemVThresh = avgSp * 1.0f   // shorter: catches even short stems on small noteheads
 
-        // ── Pass 1: erase beams ──────────────────────────────────────────────
         for (y in 0 until h) {
-            var x = 0
-            while (x < w) {
-                if (!noStaff[y][x]) { x++; continue }
-                var runEnd = x
-                while (runEnd < w && noStaff[y][runEnd]) runEnd++
-                val runLen = runEnd - x
-                if (runLen > avgSp * 2.5f) {
-                    val cx = (x + runEnd) / 2
-                    var topY = y
-                    var botY = y
-                    while (topY > 0 && noStaff[topY - 1][cx]) topY--
-                    while (botY < h - 1 && noStaff[botY + 1][cx]) botY++
-                    if ((botY - topY + 1) <= avgSp * 0.55f) {
-                        for (ey in topY..botY) for (ex in x until runEnd) result[ey][ex] = false
-                    }
+            for (x in 0 until w) {
+                if (!noStaff[y][x]) continue
+
+                // Horizontal run width
+                var hlx = x; var hrx = x
+                while (hlx > 0 && noStaff[y][hlx - 1]) hlx--
+                while (hrx < w - 1 && noStaff[y][hrx + 1]) hrx++
+                val hWidth = (hrx - hlx + 1).toFloat()
+
+                // Vertical run height
+                var vty = y; var vby = y
+                while (vty > 0 && noStaff[vty - 1][x]) vty--
+                while (vby < h - 1 && noStaff[vby + 1][x]) vby++
+                val vHeight = (vby - vty + 1).toFloat()
+
+                if (hWidth > beamHThresh && vHeight <= beamVThresh) {
+                    result[y][x] = false   // beam pixel
+                } else if (hWidth <= stemHThresh && vHeight > stemVThresh) {
+                    result[y][x] = false   // stem pixel
                 }
-                x = runEnd
             }
         }
-
-        // ── Pass 2: erase stems ──────────────────────────────────────────────
-        for (x in 0 until w) {
-            var y = 0
-            while (y < h) {
-                if (!result[y][x]) { y++; continue }
-                var runEnd = y
-                while (runEnd < h && result[runEnd][x]) runEnd++
-                val runLen = runEnd - y
-                if (runLen > avgSp * 1.5f) {
-                    // Find minimum horizontal width across the run
-                    var minWidth = Int.MAX_VALUE
-                    for (ry in y until runEnd) {
-                        var lx = x; var rx = x
-                        while (lx > 0 && result[ry][lx - 1]) lx--
-                        while (rx < w - 1 && result[ry][rx + 1]) rx++
-                        val rowWidth = rx - lx + 1
-                        if (rowWidth < minWidth) minWidth = rowWidth
-                    }
-                    if (minWidth <= avgSp * 0.4f) {
-                        // Erase the full horizontal extent at each row of the stem
-                        for (ey in y until runEnd) {
-                            var lx = x; var rx = x
-                            while (lx > 0 && result[ey][lx - 1]) lx--
-                            while (rx < w - 1 && result[ey][rx + 1]) rx++
-                            for (ex in lx..rx) result[ey][ex] = false
-                        }
-                    }
-                }
-                y = runEnd
-            }
-        }
-
         return result
     }
 
@@ -426,10 +459,12 @@ class OmrProcessor(private val context: Context) {
         cx: Int, cy: Int, sp: Float,
         noStaff: Array<BooleanArray>, w: Int, h: Int
     ): Int {
-        val scanTop = (cy - (sp * 6).toInt()).coerceAtLeast(0)
-        val scanBot = (cy + (sp * 6).toInt()).coerceAtMost(h - 1)
-        val xLeft   = (cx - (sp * 3).toInt()).coerceAtLeast(0)
-        val xRight  = (cx + (sp * 3).toInt()).coerceAtMost(w - 1)
+        // Tight vertical window: stem length is at most ~3.5×sp above or below the notehead
+        // Tight horizontal window: beam attaches to the stem, which is within ~0.5×sp of center
+        val scanTop = (cy - (sp * 4).toInt()).coerceAtLeast(0)
+        val scanBot = (cy + (sp * 4).toInt()).coerceAtMost(h - 1)
+        val xLeft   = (cx - (sp * 2).toInt()).coerceAtLeast(0)
+        val xRight  = (cx + (sp * 2).toInt()).coerceAtMost(w - 1)
 
         var beamGroups = 0
         var inGroup = false
@@ -477,10 +512,12 @@ class OmrProcessor(private val context: Context) {
                 visited[sy][sx] = true
 
                 var minX = sx; var maxX = sx; var minY = sy; var maxY = sy; var count = 0
+                var sumY = 0L  // for pixel-weighted vertical centroid
 
                 while (sp > 0) {
                     val cy = stack[--sp]; val cx = stack[--sp]
                     count++
+                    sumY += cy
                     if (cx < minX) minX = cx; if (cx > maxX) maxX = cx
                     if (cy < minY) minY = cy; if (cy > maxY) maxY = cy
 
@@ -497,11 +534,37 @@ class OmrProcessor(private val context: Context) {
                 val cw = maxX - minX + 1; val ch = maxY - minY + 1
                 if (cw < 2 || ch < 2 || count < 4) continue
 
-                val centY = (minY + maxY) / 2
+                // Use pixel-weighted centroid Y rather than bounding-box center.
+                // This is more robust when residual stem/beam fragments shift the bbox.
+                val centY = (sumY / count).toInt()
                 val nearest = systems.minByOrNull { abs((it.top + it.bottom) / 2 - centY) }
-                val staffPos = nearest?.let {
-                    val relY = centY - it.lines[0]
-                    relY / (it.spacing / 2f)
+
+                // Reject components that are too far from any staff — these are title text,
+                // composer names, tempo markings, page numbers, etc.
+                if (nearest != null) {
+                    val sp = nearest.spacing
+                    val margin = sp * 5f   // allow up to 5 staff-spaces above/below for ledger lines
+                    if (centY < nearest.top - margin || centY > nearest.bottom + margin) continue
+                }
+
+                val staffPos = nearest?.let { sys ->
+                    // Use all 5 detected staff line positions to compute the diatonic position.
+                    // Staff lines are at diatonic positions 0,2,4,6,8 (even = line, odd = space).
+                    // Find the nearest staff line, then offset in half-spaces from there.
+                    val lineYs = sys.lines
+                    val sp = sys.spacing
+
+                    // Find which staff line the centY is closest to
+                    val closestLineIdx = lineYs.indices.minByOrNull { abs(lineYs[it] - centY) }!!
+                    val closestLineY   = lineYs[closestLineIdx]
+                    val closestLinePos = closestLineIdx * 2f  // 0,2,4,6,8
+
+                    // Distance from that known line, in units of half-staff-spacings
+                    val halfSp = sp / 2f
+                    val offset = (centY - closestLineY) / halfSp
+
+                    // Total staff position, rounded to nearest integer (line or space)
+                    (closestLinePos + offset).roundToInt().toFloat()
                 } ?: 0f
 
                 result.add(Component(
@@ -557,33 +620,28 @@ class OmrProcessor(private val context: Context) {
 
             val (type, conf) = when {
 
-                // ── Vertical structures ──────────────────────────────────────
-                // Barline: very tall, very thin
-                comp.height > sp * 4.5f && comp.width < sp * 0.45f ->
-                    Pair(SymbolType.BAR_LINE, 0.82f)
-
-                // Stem: tall, thin (but shorter than barline)
-                comp.height > sp * 2.2f && comp.width < sp * 0.45f ->
+                // ── Residual structures (should be mostly erased by separateNoteheads) ──
+                // Skip tall thin remnants (stems/barlines that weren't fully removed)
+                comp.height > sp * 2.0f && comp.width < sp * 0.5f ->
                     Pair(SymbolType.STEM, 0.75f)
 
-                // ── Horizontal structures ────────────────────────────────────
-                // Beam: wide, very short, high aspect ratio
-                comp.width > sp * 1.8f && comp.height < sp * 0.45f && ar > 3.5f ->
+                // Skip wide flat remnants (beam fragments)
+                comp.width > sp * 2.0f && comp.height < sp * 0.4f ->
                     Pair(SymbolType.BEAM, 0.75f)
 
                 // ── Noteheads ────────────────────────────────────────────────
-                // Whole note: wider-than-tall ellipse, medium fill (it's hollow with thick border)
-                comp.width  in ((sp * 1.2f).toInt())..(( sp * 2.6f).toInt()) &&
-                comp.height in ((sp * 0.4f).toInt())..((sp * 1.05f).toInt()) &&
-                fill in 0.20f..0.72f && ar > 1.2f ->
+                // Whole note: wider-than-tall ellipse, medium fill (hollow with thick border)
+                comp.width  in ((sp * 1.0f).toInt())..(( sp * 2.8f).toInt()) &&
+                comp.height in ((sp * 0.35f).toInt())..((sp * 1.1f).toInt()) &&
+                fill in 0.18f..0.76f && ar > 1.1f ->
                     Pair(SymbolType.NOTEHEAD_WHOLE, 0.72f)
 
-                // Normal notehead size
-                comp.width  in ((sp * 0.45f).toInt())..(( sp * 1.65f).toInt()) &&
-                comp.height in ((sp * 0.35f).toInt())..(( sp * 1.15f).toInt()) -> {
+                // Normal notehead: roughly circular, size 0.4–1.5×sp
+                comp.width  in ((sp * 0.40f).toInt())..(( sp * 1.8f).toInt()) &&
+                comp.height in ((sp * 0.30f).toInt())..(( sp * 1.3f).toInt()) -> {
                     when {
-                        fill > 0.50f -> Pair(SymbolType.NOTEHEAD_FILLED, 0.88f)
-                        fill > 0.30f && ar in 0.65f..2.4f ->
+                        fill > 0.45f -> Pair(SymbolType.NOTEHEAD_FILLED, 0.88f)
+                        fill > 0.25f && ar in 0.55f..2.6f ->
                             Pair(SymbolType.NOTEHEAD_OPEN, 0.78f)
                         else -> Pair(SymbolType.UNKNOWN, 0.2f)
                     }
@@ -616,6 +674,7 @@ class OmrProcessor(private val context: Context) {
         symbols: List<DetectedSymbol>,
         systems: List<StaffSystem>,
         title: String,
+        barlineMap: Map<StaffSystem, List<Int>>,
         noStaff: Array<BooleanArray>,
         w: Int,
         h: Int
@@ -625,34 +684,65 @@ class OmrProcessor(private val context: Context) {
 
         for (system in systems) {
             val sysSyms  = symbols.filter { it.staff == system }
-            val barlines = sysSyms.filter { it.type == SymbolType.BAR_LINE }
-                .map { it.x }.sorted()
+            var barlines = (barlineMap[system] ?: emptyList()).toMutableList()
 
-            // Build measure x-bounds from barline positions
-            val bounds = mutableListOf<Pair<Int, Int>>()
+            // If no barlines found, estimate measure positions using the staff system width.
+            // A typical system has 4–5 measures; divide evenly.
             if (barlines.isEmpty()) {
-                bounds.add(0 to Int.MAX_VALUE)
+                val sp = system.spacing
+                val systemWidth = system.right - system.left
+                val estMeasureWidth = (sp * 12f).toInt().coerceAtLeast(1)
+                val numMeasures = (systemWidth / estMeasureWidth).coerceIn(1, 8)
+                val step = systemWidth / numMeasures
+                for (k in 1 until numMeasures) barlines.add(system.left + k * step)
+            }
+
+            // Build measure x-bounds from barline positions.
+            // Filter out barlines that are at the very start or end of the system (system barlines).
+            val sysWidth = system.right - system.left
+            val filteredBarlines = barlines.sorted().filter { bx ->
+                bx > system.left + sysWidth * 0.05f &&   // not within 5% of left edge
+                bx < system.right - sysWidth * 0.02f     // not within 2% of right edge
+            }
+            val bounds = mutableListOf<Pair<Int, Int>>()
+            if (filteredBarlines.isEmpty()) {
+                bounds.add(system.left to system.right)
             } else {
-                bounds.add(0 to barlines.first())
-                for (i in 0 until barlines.size - 1)
-                    bounds.add(barlines[i] to barlines[i + 1])
-                bounds.add(barlines.last() to Int.MAX_VALUE)
+                bounds.add(system.left to filteredBarlines.first())
+                for (i in 0 until filteredBarlines.size - 1)
+                    bounds.add(filteredBarlines[i] to filteredBarlines[i + 1])
+                bounds.add(filteredBarlines.last() to system.right)
             }
 
             for ((lo, hi) in bounds) {
                 val mSyms = sysSyms.filter { it.x in lo..hi }
                 val notes = extractNotes(mSyms, system, noStaff, w, h)
-                if (notes.isEmpty() && measureNum > 1) continue  // skip spurious empty measures
 
-                val isFirst = measureNum == 1
-                measures.add(Measure(
-                    number = measureNum++,
-                    clef            = if (isFirst) Clef(ClefType.BASS) else null,
-                    timeSignature   = if (isFirst) TimeSignature(4, 4) else null,
-                    keySignature    = if (isFirst) KeySignature(0) else null,
-                    elements        = notes,
-                    barlineRight    = Barline.REGULAR
-                ))
+                if (notes.isEmpty()) {
+                    // Skip empty measures mid-score, but always add first measure
+                    if (measureNum > 1) continue
+                }
+
+                // If a "measure" has too many notes, it's likely a mis-split.
+                // Chunk it into sub-measures of ≤16 notes each rather than discarding.
+                val chunks = if (notes.size > 16) notes.chunked(16) else listOf(notes)
+
+                for (chunk in chunks) {
+                    val isFirst = measureNum == 1
+                    val tickOffset = if (chunk.isNotEmpty()) chunk.first().startTick else 0
+                    // Re-base ticks to start at 0 within this measure
+                    val rebasedChunk = chunk.mapIndexed { idx, el ->
+                        if (el is Note) el.copy(startTick = el.startTick - tickOffset) else el
+                    }
+                    measures.add(Measure(
+                        number          = measureNum++,
+                        clef            = if (isFirst) Clef(ClefType.BASS) else null,
+                        timeSignature   = if (isFirst) TimeSignature(4, 4) else null,
+                        keySignature    = if (isFirst) KeySignature(0) else null,
+                        elements        = rebasedChunk,
+                        barlineRight    = Barline.REGULAR
+                    ))
+                }
             }
         }
 
@@ -707,37 +797,45 @@ class OmrProcessor(private val context: Context) {
     }
 
     /**
-     * Maps a continuous staff position to a cello pitch in bass clef.
+     * Maps a continuous staff position to a pitch, working for any octave.
      *
-     * staffPosition units: each unit = one diatonic half-space.
-     *   0 = top (5th) line, 1 = first space, 2 = 4th line, …, 8 = bottom line.
-     *   Values > 8 represent ledger lines below the staff (down to open C string).
-     *   Negative values represent notes above the staff.
+     * staffPos 0  = top line of bass clef  = A3
+     * Each integer step = one diatonic position (line or space), going downward.
+     * Negative values = above the top line (B3, C4/middle-C, D4, …).
+     * Positive values = below the top line down through G2, F2, … C2 (open C string).
      *
-     * Bass clef reference: 5th line = A3.
+     * Formula: start at A3 (diatonic step 5 in C-major 0-indexed C=0…B=6, octave 3).
+     * Walk |pos| steps up or down the diatonic scale.  Octave increments when crossing
+     * B→C upward, decrements when crossing C→B downward.
      */
     private fun staffPositionToPitch(staffPos: Float): Pitch {
-        // Index 0..12 maps top-of-staff down to low C (C2 = open C string of cello)
-        val pitchTable = arrayOf(
-            PitchStep.A to 3,   //  0  5th line   A3
-            PitchStep.G to 3,   //  1  space       G3
-            PitchStep.F to 3,   //  2  4th line    F3
-            PitchStep.E to 3,   //  3  space       E3
-            PitchStep.D to 3,   //  4  3rd line    D3
-            PitchStep.C to 3,   //  5  space       C3
-            PitchStep.B to 2,   //  6  2nd line    B2
-            PitchStep.A to 2,   //  7  space       A2
-            PitchStep.G to 2,   //  8  1st line    G2
-            PitchStep.F to 2,   //  9  1st ledger space below
-            PitchStep.E to 2,   // 10  1st ledger line below  E2
-            PitchStep.D to 2,   // 11  2nd ledger space below
-            PitchStep.C to 2    // 12  2nd ledger line below  C2  (open C string)
-        )
+        val pos = staffPos.roundToInt()   // round to nearest diatonic position (correct for ± values)
 
-        // Round to nearest integer position, clamp to table
-        val idx = (staffPos + 0.5f).toInt().coerceIn(0, pitchTable.size - 1)
-        val (step, octave) = pitchTable[idx]
-        return Pitch(step, octave)
+        // Diatonic step index: C=0, D=1, E=2, F=3, G=4, A=5, B=6
+        // Reference: pos=0 → A3
+        var step = 5
+        var oct  = 3
+
+        if (pos > 0) {
+            // Walk downward (increasing pos)
+            repeat(pos) {
+                step--
+                if (step < 0) { step = 6; oct-- }   // crossed below C → go to B one octave down
+            }
+        } else if (pos < 0) {
+            // Walk upward (decreasing pos)
+            repeat(-pos) {
+                step++
+                if (step > 6) { step = 0; oct++ }   // crossed above B → go to C one octave up
+            }
+        }
+
+        oct = oct.coerceIn(1, 6)
+        val pitchStep = when (step) {
+            0 -> PitchStep.C;  1 -> PitchStep.D;  2 -> PitchStep.E;  3 -> PitchStep.F
+            4 -> PitchStep.G;  5 -> PitchStep.A;  else -> PitchStep.B
+        }
+        return Pitch(pitchStep, oct)
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

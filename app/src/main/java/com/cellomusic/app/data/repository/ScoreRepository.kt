@@ -101,8 +101,13 @@ class ScoreRepository(private val context: Context) {
 
             for (pageIndex in 0 until pageCount) {
                 val page = renderer.openPage(pageIndex)
-                val bitmap = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
-                page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                // Render at 3× native size so staff lines are thick enough for detection.
+                // A4 PDF = 595×842 pts → 1785×2526 px; OmrProcessor scales back to ≤1600px.
+                val renderScale = 3
+                val bitmap = Bitmap.createBitmap(
+                    page.width * renderScale, page.height * renderScale, Bitmap.Config.ARGB_8888)
+                val matrix = android.graphics.Matrix().apply { setScale(renderScale.toFloat(), renderScale.toFloat()) }
+                page.render(bitmap, null, matrix, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                 page.close()
                 if (pageIndex == 0) thumbnailBitmap = bitmap
                 val pageProgress: ((String) -> Unit)? = onProgress?.let { cb ->
