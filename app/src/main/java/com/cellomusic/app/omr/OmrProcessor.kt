@@ -91,7 +91,7 @@ class OmrProcessor(private val context: Context) {
         val barlineMap = detectBarlines(binary, imgW, imgH, staffSystems)
 
         onProgress?.invoke("Scanning staff positions for noteheads…")
-        val symbols = findNoteheadsFromStrips(noStaff, imgW, imgH, staffSystems)
+        val symbols = findNoteheadsFromStrips(noStaff, imgW, imgH, staffSystems, binary)
 
         val noteCount = symbols.count { it.type in NOTEHEAD_TYPES }
         onProgress?.invoke("Building score — $noteCount note(s) found…")
@@ -676,97 +676,89 @@ class OmrProcessor(private val context: Context) {
     // ── Strip-based notehead detection ──────────────────────────────────────
 
     /**
-     * Finds noteheads by scanning horizontal strips at each diatonic staff position.
+     * Finds noteheads by scanning horizontal strips at every diatonic staff position.
      *
-     * For each position (line/space/ledger line) within ±6 half-steps of the staff:
-     *   1. Build a strip of height ≈ 0.84×sp centred on that diatonic y.
-     *   2. Compute per-column black-pixel count within the strip.
-     *   3. Find blobs (contiguous columns with density ≥ 2).
-     *   4. Accept blobs with width ∈ [0.28×sp, 1.95×sp] — stems are too narrow,
-     *      beams spanning several noteheads are too wide.
-     *   5. Classify by fill ratio: ≥ 0.36 → filled, ≥ 0.14 → open/whole.
+     * Key idea: a notehead at position P occupies columns blobStart..blobEnd in a
+     * horizontal strip centred at the P-position y.  Its width is ≈ 0.5–1.5×sp.
+     * Beams are much wider (≥ 2×sp) and stems are much narrower (≤ 2px), so both
+     * are naturally rejected by the width filter — no explicit beam/stem removal needed.
      *
-     * Duplicates from adjacent positions are resolved by keeping the detection
-     * with the higher confidence (fill).
+     * Two passes per diatonic position:
+     *   Pass 1: noStaff image — clean for spaces and ledger line positions.
+     *   Pass 2: original binary — used as a fallback for line positions where
+     *           removeStaffLines may have partially erased the notehead.
+     *           Staff-line blobs (width ≫ maxBlobW) are filtered out automatically.
      */
     private fun findNoteheadsFromStrips(
         noStaff: Array<BooleanArray>, imgW: Int, imgH: Int,
-        systems: List<StaffSystem>
+        systems: List<StaffSystem>,
+        binary: Array<BooleanArray>? = null
     ): List<DetectedSymbol> {
         val result = mutableListOf<DetectedSymbol>()
 
         for (sys in systems) {
-            val sp      = sys.spacing
-            val halfSp  = sp / 2f
-            val stripHalf = (sp * 0.42f).toInt().coerceAtLeast(2)
-            val minBlobW  = (sp * 0.28f).toInt().coerceAtLeast(2)
-            val maxBlobW  = (sp * 1.95f).toInt()
+            val sp       = sys.spacing
+            val halfSp   = sp / 2f
+            // Strip half-height: ≈ 40% of staff space — wide enough to capture full noteheads
+            // but narrow enough not to bleed into the adjacent position.
+            val stripHalf = (sp * 0.40f).toInt().coerceAtLeast(2)
+            val minBlobW  = (sp * 0.20f).toInt().coerceAtLeast(2)
+            val maxBlobW  = (sp * 2.40f).toInt()
             val xLeft     = sys.left.coerceAtLeast(0)
             val xRight    = sys.right.coerceAtMost(imgW - 1)
+            // density scratch array – reused across positions
             val density   = IntArray(imgW)
+            // Allow gaps of up to 2 columns inside a notehead blob (outline gaps, anti-alias)
+            val MAX_GAP   = 2
 
-            // Positions -6..14 covers 3 ledger lines above and below the 5-line staff
+            // Diatonic positions: -6..14 covers 3 ledger lines above & below the staff
             for (pos in -6..14) {
-                val centerYf = when {
+                // y-centre of this diatonic position
+                val centerYf: Float = when {
                     pos <= 0 -> sys.lines[0] + pos * halfSp
                     pos >= 8 -> sys.lines[4] + (pos - 8) * halfSp
-                    else -> {
+                    else     -> {
                         val li = pos / 2
                         if (pos % 2 == 0) sys.lines[li].toFloat()
-                        else sys.lines[li] + halfSp
+                        else              sys.lines[li] + halfSp
                     }
                 }
                 val stripTop = (centerYf - stripHalf).toInt().coerceAtLeast(0)
                 val stripBot = (centerYf + stripHalf).toInt().coerceAtMost(imgH - 1)
                 val stripH   = (stripBot - stripTop + 1).coerceAtLeast(1)
 
-                // Column density within this strip
+                // Whether this position is exactly ON a staff line (where staff removal
+                // may have left a gap through the notehead centre)
+                val isOnLine = pos in 0..8 && pos % 2 == 0
+
+                // --- Pass 1: use noStaff image ---
                 for (x in xLeft..xRight) {
                     var cnt = 0
                     for (y in stripTop..stripBot) if (noStaff[y][x]) cnt++
                     density[x] = cnt
                 }
+                scanBlobs(density, xLeft, xRight, stripH, sp, centerYf,
+                          pos, sys, minBlobW, maxBlobW, MAX_GAP, minDensity = 1, result)
 
-                // Find blobs (contiguous columns with density ≥ 2)
-                var x = xLeft
-                while (x <= xRight) {
-                    if (density[x] < 2) { x++; continue }
-                    val blobStart = x
-                    while (x <= xRight && density[x] >= 2) x++
-                    val blobEnd = x - 1
-                    val blobW   = blobEnd - blobStart + 1
-
-                    if (blobW in minBlobW..maxBlobW) {
-                        var black = 0
-                        for (bx in blobStart..blobEnd) black += density[bx]
-                        val fill = black.toFloat() / (blobW * stripH).coerceAtLeast(1)
-                        val ar   = blobW.toFloat() / stripH.coerceAtLeast(1)
-                        val cx   = (blobStart + blobEnd) / 2
-
-                        val (type, conf) = when {
-                            blobW > sp * 0.90f && ar > 1.05f && fill in 0.13f..0.72f ->
-                                Pair(SymbolType.NOTEHEAD_WHOLE, 0.74f)
-                            fill >= 0.36f ->
-                                Pair(SymbolType.NOTEHEAD_FILLED, 0.88f)
-                            fill >= 0.13f ->
-                                Pair(SymbolType.NOTEHEAD_OPEN, 0.75f)
-                            else -> Pair(SymbolType.UNKNOWN, 0f)
-                        }
-
-                        if (conf > 0f) {
-                            result.add(DetectedSymbol(
-                                type = type, x = cx, y = centerYf.toInt(),
-                                width = blobW, height = stripH,
-                                staff = sys, staffPosition = pos.toFloat(), confidence = conf
-                            ))
-                        }
+                // --- Pass 2 (on-line positions only): re-scan original binary ---
+                // Staff lines will form blobs wider than maxBlobW → rejected.
+                // Noteheads on the line have noticeably higher column density than the
+                // bare staff line, so require density > 4 to skip the bare staff line.
+                if (isOnLine && binary != null) {
+                    for (x in xLeft..xRight) {
+                        var cnt = 0
+                        for (y in stripTop..stripBot) if (binary[y][x]) cnt++
+                        density[x] = cnt
                     }
+                    scanBlobs(density, xLeft, xRight, stripH, sp, centerYf,
+                              pos, sys, minBlobW, maxBlobW, MAX_GAP, minDensity = 5, result)
                 }
             }
         }
 
-        // Deduplicate: if two detections share the same staff and are close in x and
-        // staff position, keep the one with higher confidence (better-centred blob).
+        // Deduplicate: keep the highest-confidence detection within ±0.55×sp in x
+        // and ±1.5 diatonic positions.  This removes pass-1/pass-2 duplicates and
+        // adjacent-strip double-detections of the same physical notehead.
         val sorted  = result.sortedByDescending { it.confidence }
         val removed = BooleanArray(sorted.size)
         val kept    = mutableListOf<DetectedSymbol>()
@@ -774,12 +766,12 @@ class OmrProcessor(private val context: Context) {
         for (i in sorted.indices) {
             if (removed[i]) continue
             kept.add(sorted[i])
-            val sp = sorted[i].staff?.spacing ?: 10f
+            val isp = sorted[i].staff?.spacing ?: 10f
             for (j in i + 1 until sorted.size) {
                 if (removed[j]) continue
                 val dj = sorted[j]
                 if (dj.staff === sorted[i].staff &&
-                    abs(dj.x - sorted[i].x) < sp * 0.60f &&
+                    abs(dj.x - sorted[i].x) < isp * 0.55f &&
                     abs(dj.staffPosition - sorted[i].staffPosition) < 1.6f) {
                     removed[j] = true
                 }
@@ -787,6 +779,68 @@ class OmrProcessor(private val context: Context) {
         }
 
         return kept.sortedWith(compareBy({ it.staff?.top ?: 0 }, { it.x }))
+    }
+
+    /** Scans [density] array for notehead-sized blobs and appends to [out]. */
+    private fun scanBlobs(
+        density: IntArray,
+        xLeft: Int, xRight: Int,
+        stripH: Int,
+        sp: Float,
+        centerYf: Float,
+        pos: Int,
+        sys: StaffSystem,
+        minBlobW: Int, maxBlobW: Int,
+        maxGap: Int,
+        minDensity: Int,
+        out: MutableList<DetectedSymbol>
+    ) {
+        var x = xLeft
+        while (x <= xRight) {
+            if (density[x] < minDensity) { x++; continue }
+            val blobStart = x
+            var gapLen = 0
+            // advance while blob continues (with gap tolerance)
+            while (x <= xRight) {
+                when {
+                    density[x] >= minDensity -> { gapLen = 0; x++ }
+                    gapLen < maxGap          -> { gapLen++; x++ }
+                    else                     -> break
+                }
+            }
+            // trim trailing gap columns
+            val blobEnd = x - 1 - gapLen
+            if (blobEnd < blobStart) continue
+            val blobW = blobEnd - blobStart + 1
+            if (blobW !in minBlobW..maxBlobW) continue
+
+            var black = 0
+            for (bx in blobStart..blobEnd) black += density[bx]
+            val fill = black.toFloat() / (blobW * stripH).coerceAtLeast(1)
+            val ar   = blobW.toFloat() / stripH.coerceAtLeast(1)
+            val cx   = (blobStart + blobEnd) / 2
+
+            val (type, conf) = when {
+                // Whole note: wider than a space, oval (ar>1), medium fill (hollow ring)
+                blobW >= sp * 0.85f && ar > 0.95f && fill in 0.08f..0.78f ->
+                    Pair(SymbolType.NOTEHEAD_WHOLE, 0.74f)
+                // Filled notehead (quarter, eighth, …)
+                fill >= 0.22f ->
+                    Pair(SymbolType.NOTEHEAD_FILLED, 0.85f)
+                // Open notehead (half note)
+                fill >= 0.06f ->
+                    Pair(SymbolType.NOTEHEAD_OPEN, 0.72f)
+                else -> Pair(SymbolType.UNKNOWN, 0f)
+            }
+
+            if (conf > 0f) {
+                out.add(DetectedSymbol(
+                    type = type, x = cx, y = centerYf.toInt(),
+                    width = blobW, height = stripH,
+                    staff = sys, staffPosition = pos.toFloat(), confidence = conf
+                ))
+            }
+        }
     }
 
     // ── Score assembly ───────────────────────────────────────────────────────
