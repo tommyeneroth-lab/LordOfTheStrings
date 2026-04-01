@@ -34,6 +34,9 @@ interface ScoreDao {
     @Query("UPDATE scores SET isFavorite = :fav WHERE id = :id")
     suspend fun setFavorite(id: Long, fav: Boolean)
 
+    @Query("UPDATE scores SET title = :title WHERE id = :id")
+    suspend fun updateTitle(id: Long, title: String)
+
     @Query("""UPDATE scores SET omrStatus = :status, measureCount = :measureCount,
               noteCount = :noteCount,
               keySignature = :keySignature, timeSignatureTop = :tsTop,

@@ -1,11 +1,13 @@
 package com.cellomusic.app.ui.viewer
 
 import android.content.Context
+import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cellomusic.app.audio.playback.ScorePlayer
 import com.cellomusic.app.data.repository.ScoreRepository
-import com.cellomusic.app.domain.model.Score
+import com.cellomusic.app.domain.model.*
+import com.cellomusic.app.export.ScoreExporter
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -16,6 +18,7 @@ class ScoreViewerViewModel : ViewModel() {
     val score: StateFlow<Score?> = _score
 
     private var player: ScorePlayer? = null
+    private var scoreRepository: ScoreRepository? = null
     private val _currentMeasure = MutableStateFlow(1)
     val currentMeasure: StateFlow<Int> = _currentMeasure
     private val _currentNotePosition = MutableStateFlow(Pair(1, 0))
@@ -25,6 +28,7 @@ class ScoreViewerViewModel : ViewModel() {
 
     fun loadScore(context: Context, scoreId: Long) {
         val repository = ScoreRepository(context)
+        scoreRepository = repository
         val scorePlayer = ScorePlayer(context)
         player = scorePlayer
 
@@ -62,6 +66,113 @@ class ScoreViewerViewModel : ViewModel() {
         }
     }
 
+    private val _transposeSteps = MutableStateFlow(0)
+    val transposeSteps: StateFlow<Int> = _transposeSteps
+
+    private val _exportIntent = MutableStateFlow<Intent?>(null)
+    val exportIntent: StateFlow<Intent?> = _exportIntent
+
+    private val _selectedNotePos = MutableStateFlow<Pair<Int, Int>?>(null)
+    val selectedNotePos: StateFlow<Pair<Int, Int>?> = _selectedNotePos
+
+    fun selectNote(measureNum: Int, noteIdx: Int) {
+        val cur = _selectedNotePos.value
+        _selectedNotePos.value = if (cur?.first == measureNum && cur.second == noteIdx) null
+                                 else Pair(measureNum, noteIdx)
+    }
+
+    private fun modifySelectedNote(transform: (Note) -> Note) {
+        val (measureNum, noteIdx) = _selectedNotePos.value ?: return
+        val score = _score.value ?: return
+        val newParts = score.parts.map { part ->
+            part.copy(measures = part.measures.map { measure ->
+                if (measure.number == measureNum) {
+                    val elements = measure.elements.toMutableList()
+                    val elem = elements.getOrNull(noteIdx)
+                    if (elem is Note) elements[noteIdx] = transform(elem)
+                    measure.copy(elements = elements)
+                } else measure
+            })
+        }
+        _score.value = score.copy(parts = newParts)
+        _score.value?.let { player?.loadScore(it) }
+    }
+
+    fun pitchUp() = modifySelectedNote { note ->
+        val midi = (note.pitch.toMidiNote() + 1).coerceIn(24, 96)
+        note.copy(pitch = midiToPitch(midi))
+    }
+
+    fun pitchDown() = modifySelectedNote { note ->
+        val midi = (note.pitch.toMidiNote() - 1).coerceIn(24, 96)
+        note.copy(pitch = midiToPitch(midi))
+    }
+
+    fun durationShorter() = modifySelectedNote { note ->
+        val shorter = when (note.duration.type) {
+            DurationType.WHOLE -> DurationType.HALF
+            DurationType.HALF -> DurationType.QUARTER
+            DurationType.QUARTER -> DurationType.EIGHTH
+            DurationType.EIGHTH -> DurationType.SIXTEENTH
+            DurationType.SIXTEENTH -> DurationType.THIRTY_SECOND
+            else -> null
+        } ?: return@modifySelectedNote note
+        note.copy(duration = NoteDuration(shorter))
+    }
+
+    fun durationLonger() = modifySelectedNote { note ->
+        val longer = when (note.duration.type) {
+            DurationType.THIRTY_SECOND -> DurationType.SIXTEENTH
+            DurationType.SIXTEENTH -> DurationType.EIGHTH
+            DurationType.EIGHTH -> DurationType.QUARTER
+            DurationType.QUARTER -> DurationType.HALF
+            DurationType.HALF -> DurationType.WHOLE
+            else -> null
+        } ?: return@modifySelectedNote note
+        note.copy(duration = NoteDuration(longer))
+    }
+
+    fun deleteNote() {
+        val (measureNum, noteIdx) = _selectedNotePos.value ?: return
+        val score = _score.value ?: return
+        val newParts = score.parts.map { part ->
+            part.copy(measures = part.measures.map { measure ->
+                if (measure.number == measureNum) {
+                    val elements = measure.elements.toMutableList()
+                    if (noteIdx in elements.indices) elements.removeAt(noteIdx)
+                    measure.copy(elements = elements)
+                } else measure
+            })
+        }
+        _score.value = score.copy(parts = newParts)
+        _selectedNotePos.value = null
+        _score.value?.let { player?.loadScore(it) }
+    }
+
+    fun saveScore(context: Context) = viewModelScope.launch {
+        val s = _score.value ?: return@launch
+        (scoreRepository ?: ScoreRepository(context)).saveScore(s)
+    }
+
+    private fun midiToPitch(midi: Int): Pitch {
+        val octave = midi / 12 - 1
+        val pc     = midi % 12
+        return when (pc) {
+            0  -> Pitch(PitchStep.C, octave)
+            1  -> Pitch(PitchStep.C, octave, Alter.SHARP)
+            2  -> Pitch(PitchStep.D, octave)
+            3  -> Pitch(PitchStep.D, octave, Alter.SHARP)
+            4  -> Pitch(PitchStep.E, octave)
+            5  -> Pitch(PitchStep.F, octave)
+            6  -> Pitch(PitchStep.F, octave, Alter.SHARP)
+            7  -> Pitch(PitchStep.G, octave)
+            8  -> Pitch(PitchStep.G, octave, Alter.SHARP)
+            9  -> Pitch(PitchStep.A, octave)
+            10 -> Pitch(PitchStep.A, octave, Alter.SHARP)
+            else -> Pitch(PitchStep.B, octave)
+        }
+    }
+
     fun play() = player?.play()
     fun pause() = player?.pause()
     fun stop() = player?.stop()
@@ -69,6 +180,28 @@ class ScoreViewerViewModel : ViewModel() {
     fun setTempoMultiplier(multiplier: Float) = player?.setTempoMultiplier(multiplier)
     fun setVolume(volume: Float) = player?.setVolume(volume)
     fun seekToNote(measureNumber: Int, noteIndex: Int) = player?.seekToNote(measureNumber, noteIndex)
+    fun setTranspose(steps: Int) {
+        _transposeSteps.value = steps
+        player?.setTranspose(steps)
+    }
+
+    fun exportScore(context: Context, format: String) = viewModelScope.launch {
+        val score = _score.value ?: return@launch
+        val exporter = ScoreExporter(context)
+        try {
+            val intent = when (format) {
+                "midi"     -> exporter.exportMidi(score, _transposeSteps.value)
+                "musicxml" -> exporter.exportMusicXml(score)
+                "pdf"      -> exporter.exportPdf(score)
+                else       -> return@launch
+            }
+            _exportIntent.value = intent
+        } catch (_: Exception) {
+            _exportIntent.value = null
+        }
+    }
+
+    fun clearExportIntent() { _exportIntent.value = null }
 
     override fun onCleared() {
         super.onCleared()

@@ -41,6 +41,7 @@ class ScorePlayer(private val context: Context) {
     private var mediaPlayerRef: MediaPlayer? = null
     private var encodeResult: MidiScoreEncoder.EncodeResult? = null
     private var tempoMultiplier: Float = 1.0f
+    private var transposeSteps: Int = 0
     private var currentScore: Score? = null
     private var pausedAtTick: Long = 0L
     private var playbackScope: CoroutineScope? = null
@@ -55,7 +56,22 @@ class ScorePlayer(private val context: Context) {
         val wasPlaying = _playbackState.value == PlaybackState.PLAYING
         val savedTick = if (wasPlaying) estimateCurrentTick() else pausedAtTick
         if (wasPlaying) stopPlayback()
-        encodeResult = encoder.encode(score, tempoMultiplier)
+        encodeResult = encoder.encode(score, tempoMultiplier, transposeSteps)
+        pausedAtTick = savedTick
+        if (wasPlaying) {
+            val result = encodeResult ?: return
+            _playbackState.value = PlaybackState.PLAYING
+            resumeFrom(result, savedTick)
+        }
+    }
+
+    fun setTranspose(steps: Int) {
+        transposeSteps = steps.coerceIn(-12, 12)
+        val score = currentScore ?: return
+        val wasPlaying = _playbackState.value == PlaybackState.PLAYING
+        val savedTick = if (wasPlaying) estimateCurrentTick() else pausedAtTick
+        if (wasPlaying) stopPlayback()
+        encodeResult = encoder.encode(score, tempoMultiplier, transposeSteps)
         pausedAtTick = savedTick
         if (wasPlaying) {
             val result = encodeResult ?: return
@@ -71,7 +87,7 @@ class ScorePlayer(private val context: Context) {
 
     fun loadScore(score: Score): Boolean {
         currentScore = score
-        encodeResult = encoder.encode(score, tempoMultiplier)
+        encodeResult = encoder.encode(score, tempoMultiplier, transposeSteps)
         return encodeResult != null
     }
 

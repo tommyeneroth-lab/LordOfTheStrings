@@ -40,7 +40,7 @@ class MidiScoreEncoder {
         val sortedNoteTicks: List<Long>                    // sorted list of all note-on ticks for binary search
     )
 
-    fun encode(score: Score, tempoMultiplier: Float = 1.0f): EncodeResult {
+    fun encode(score: Score, tempoMultiplier: Float = 1.0f, transposeSteps: Int = 0): EncodeResult {
         val events = mutableListOf<MidiEvent>()
         val tempoMap = mutableListOf<TempoEvent>()
         val measureStartTicks = mutableMapOf<Int, Long>()
@@ -55,6 +55,12 @@ class MidiScoreEncoder {
 
             // Initial program change
             events.add(MidiEvent(0L, MidiEventType.PROGRAM_CHANGE, MIDI_CHANNEL, CELLO_PROGRAM, 0))
+            // CC setup for richer cello tone
+            events.add(MidiEvent(0L, MidiEventType.CONTROL_CHANGE, MIDI_CHANNEL, 7, 100))   // channel volume
+            events.add(MidiEvent(0L, MidiEventType.CONTROL_CHANGE, MIDI_CHANNEL, 11, 110))  // expression
+            events.add(MidiEvent(0L, MidiEventType.CONTROL_CHANGE, MIDI_CHANNEL, 91, 45))   // reverb depth (hall)
+            events.add(MidiEvent(0L, MidiEventType.CONTROL_CHANGE, MIDI_CHANNEL, 93, 12))   // chorus (warmth)
+            events.add(MidiEvent(0L, MidiEventType.CONTROL_CHANGE, MIDI_CHANNEL, 1,  20))   // modulation (vibrato)
 
             // Flatten repeats
             val flatMeasures = flattenRepeats(part.measures)
@@ -152,7 +158,7 @@ class MidiScoreEncoder {
                             if (element.tie == TieType.STOP || element.tie == TieType.CONTINUE) continue
 
                             val noteOn = absoluteTick + element.startTick
-                            val midiNote = element.pitch.toMidiNote().coerceIn(0, 127)
+                            val midiNote = (element.pitch.toMidiNote() + transposeSteps).coerceIn(0, 127)
                             val durationTicks = element.duration.toTicksWithDots(element.dotCount, TICKS_PER_QUARTER)
                             val noteOff = noteOn + calculateNoteOffTick(durationTicks, element)
 
@@ -160,7 +166,7 @@ class MidiScoreEncoder {
                                 element, currentDynamicVelocity, activeTechnicalState
                             )
 
-                            if (midiNote in 36..96) { // Cello range: C2 to C7 approx
+                            if (midiNote in 24..108) { // Extended range with transpose headroom
                                 events.add(MidiEvent(noteOn, MidiEventType.NOTE_ON,
                                     MIDI_CHANNEL, midiNote, velocity))
                                 events.add(MidiEvent(noteOff, MidiEventType.NOTE_OFF,
@@ -172,7 +178,7 @@ class MidiScoreEncoder {
                             for (note in element.notes) {
                                 if (note.tie == TieType.STOP || note.tie == TieType.CONTINUE) continue
                                 val noteOn = absoluteTick + element.startTick
-                                val midiNote = note.pitch.toMidiNote().coerceIn(0, 127)
+                                val midiNote = (note.pitch.toMidiNote() + transposeSteps).coerceIn(0, 127)
                                 val durationTicks = element.duration.toTicksWithDots(element.dotCount, TICKS_PER_QUARTER)
                                 val noteOff = noteOn + calculateNoteOffTick(durationTicks, note)
                                 val velocity = calculateVelocity(note, currentDynamicVelocity, activeTechnicalState)

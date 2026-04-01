@@ -181,6 +181,11 @@ class ScoreRepository(private val context: Context) {
         scoreDao.setFavorite(id, favorite)
     }
 
+    suspend fun renameScore(id: Long, newTitle: String) {
+        val trimmed = newTitle.trim()
+        if (trimmed.isNotEmpty()) scoreDao.updateTitle(id, trimmed)
+    }
+
     private fun saveScoreToStorage(score: Score, originalUri: Uri, sourceType: String): ScoreEntity {
         val dir = getScoreDir(score.id)
         dir.mkdirs()

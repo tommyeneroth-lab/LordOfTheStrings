@@ -138,18 +138,54 @@ class LibraryFragment : Fragment() {
 
     private fun showScoreOptions(entity: ScoreEntity) {
         val options = arrayOf(
-            if (entity.isFavorite) "Remove from Favorites" else "Add to Favorites",
-            "Delete Score"
+            "✏️ Rename",
+            if (entity.isFavorite) "★ Remove from Favorites" else "☆ Add to Favorites",
+            "🗑 Delete Score"
         )
         android.app.AlertDialog.Builder(requireContext())
             .setTitle(entity.title)
             .setItems(options) { _, which ->
                 when (which) {
-                    0 -> viewModel.toggleFavorite(entity)
-                    1 -> confirmDelete(entity)
+                    0 -> showRenameDialog(entity)
+                    1 -> viewModel.toggleFavorite(entity)
+                    2 -> confirmDelete(entity)
                 }
             }
             .show()
+    }
+
+    private fun showRenameDialog(entity: ScoreEntity) {
+        val editText = android.widget.EditText(requireContext()).apply {
+            setText(entity.title)
+            selectAll()
+            hint = "Score title"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                        android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS
+        }
+        val container = android.widget.FrameLayout(requireContext()).apply {
+            val padding = (20 * resources.displayMetrics.density).toInt()
+            setPadding(padding, 8, padding, 8)
+            addView(editText)
+        }
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Rename Score")
+            .setView(container)
+            .setPositiveButton("Rename") { _, _ ->
+                val newTitle = editText.text.toString().trim()
+                if (newTitle.isNotEmpty()) viewModel.renameScore(entity, newTitle)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+            .also { dialog ->
+                // Auto-show keyboard when dialog opens
+                editText.postDelayed({
+                    editText.requestFocus()
+                    val imm = requireContext().getSystemService(
+                        android.content.Context.INPUT_METHOD_SERVICE
+                    ) as android.view.inputmethod.InputMethodManager
+                    imm.showSoftInput(editText, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                }, 100)
+            }
     }
 
     private fun confirmDelete(entity: ScoreEntity) {

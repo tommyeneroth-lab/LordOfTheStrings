@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Cello Music</string>
+    <string name="app_name">Lord of the Strings (Cello)</string>
     <string name="tab_library">Library</string>
     <string name="tab_tuner">Tuner</string>
     <string name="tab_metronome">Metronome</string>

@@ -95,11 +95,24 @@ class ScoreCanvasView @JvmOverloads constructor(
         strokeWidth = 1.5f * dp
         style = Paint.Style.STROKE
     }
+    private val selectionBoxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(70, 255, 140, 0)
+        style = Paint.Style.FILL
+    }
+    private val selectionBoxStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(200, 220, 80, 0)
+        strokeWidth = 1.8f * dp
+        style = Paint.Style.STROKE
+    }
     private val slurPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.BLACK
         strokeWidth = 1.5f * dp
         style = Paint.Style.STROKE
     }
+
+    // Edit selection state
+    private var selectedMeasureNum = -1
+    private var selectedNoteIdx = -1
 
     // Score data
     private var score: Score? = null
@@ -139,6 +152,18 @@ class ScoreCanvasView @JvmOverloads constructor(
     fun highlightNote(measureNumber: Int, noteIndex: Int) {
         currentMeasureHighlight = measureNumber
         currentNoteHighlight = noteIndex
+        invalidate()
+    }
+
+    fun setSelectedNote(measureNum: Int, noteIdx: Int) {
+        selectedMeasureNum = measureNum
+        selectedNoteIdx = noteIdx
+        invalidate()
+    }
+
+    fun clearSelection() {
+        selectedMeasureNum = -1
+        selectedNoteIdx = -1
         invalidate()
     }
 
@@ -314,6 +339,19 @@ class ScoreCanvasView @JvmOverloads constructor(
             canvas.drawRoundRect(boxRect, 4f * dp, 4f * dp, cursorBoxStrokePaint)
         }
 
+        // Draw edit-selection highlight (orange) for the selected note
+        if (m.number == selectedMeasureNum && m.elements.isNotEmpty()) {
+            val ni = selectedNoteIdx.coerceIn(0, m.elements.size - 1)
+            val selCenterX = contentX + ni * noteStep + noteStep / 2f
+            val halfW = (noteStep / 2f).coerceAtLeast(NOTE_HEAD_W)
+            val selRect = android.graphics.RectF(
+                selCenterX - halfW, y - STAFF_SPACING * 0.5f,
+                selCenterX + halfW, y + STAFF_HEIGHT + STAFF_SPACING * 0.5f
+            )
+            canvas.drawRoundRect(selRect, 4f * dp, 4f * dp, selectionBoxPaint)
+            canvas.drawRoundRect(selRect, 4f * dp, 4f * dp, selectionBoxStrokePaint)
+        }
+
         // Draw directions (dynamics, text)
         for (dir in m.directions) {
             drawDirection(canvas, dir, contentX, y, noteAreaWidth)
@@ -363,38 +401,24 @@ class ScoreCanvasView @JvmOverloads constructor(
     }
 
     /**
-     * Draws a proper bass clef (F clef) using Canvas paths.
-     * The bass clef consists of:
-     *  - A curved "C" body anchored on the 4th line (2nd from top, position index 1)
-     *  - A dot above and below the 4th line
+     * Draws a bass clef (F clef) using the Unicode musical symbol 𝄢 (U+1D122).
+     * This gives a proper, authentic-looking clef symbol consistent with the
+     * treble clef rendering. The F line (4th from bottom = 2nd from top) sits
+     * between the two dots of the symbol.
      */
     private fun drawBassClef(canvas: Canvas, x: Float, y: Float): Float {
         val sp = STAFF_SPACING
-        // 4th line = top + 1*sp (staff line index 1)
-        val fLine = y + sp   // y of the F line (4th line of bass clef = 2nd from top)
-
-        val paint = Paint(notePaint).apply { style = Paint.Style.FILL_AND_STROKE; strokeWidth = 1.5f * dp }
-        val strokeOnly = Paint(staffPaint).apply { strokeWidth = 2f * dp; style = Paint.Style.STROKE }
-
-        // Body: a backwards "C" shape from fLine spanning down ~2 staff spaces
-        val bodyPath = Path()
-        val cx = x + sp * 0.8f
-        bodyPath.moveTo(cx, fLine - sp * 0.15f)
-        // Top curve
-        bodyPath.cubicTo(
-            cx + sp * 0.9f, fLine - sp * 1.1f,
-            x - sp * 0.05f, fLine + sp * 1.0f,
-            cx, fLine + sp * 2.1f
-        )
-        canvas.drawPath(bodyPath, strokeOnly)
-
-        // Dot above the 4th line (between 4th and 5th = position between line1 and line2)
-        val dotX = cx + sp * 1.0f
-        canvas.drawCircle(dotX, fLine - sp * 0.45f, sp * 0.18f, paint)
-        // Dot below the 4th line (between 3rd and 4th = position between line1 and line0... wait)
-        canvas.drawCircle(dotX, fLine + sp * 0.45f, sp * 0.18f, paint)
-
-        return x + sp * 2.2f
+        // Paint with a large text size so the clef spans the full staff height
+        val clefPaint = Paint(textPaint).apply {
+            textSize = sp * 3.5f
+            textAlign = Paint.Align.LEFT
+        }
+        // Baseline placed so the F line (y + sp) falls between the two dots of the F clef.
+        // Empirically the symbol baseline sits at ~70% of its text size from the top,
+        // so we offset: baseline = (F line) + symbol_height * 0.55
+        val baseline = (y + sp) + sp * 3.5f * 0.55f
+        canvas.drawText("\uD834\uDD22", x, baseline, clefPaint)  // U+1D122 = 𝄢 MUSICAL SYMBOL F CLEF
+        return x + sp * 2.5f
     }
 
     /**

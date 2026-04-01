@@ -18,21 +18,47 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <TextView
-            android:id="@+id/tv_title"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Score Title"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:textColor="@color/white" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-        <TextView
-            android:id="@+id/tv_composer"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textSize="14sp"
-            android:textColor="@color/white_70" />
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tv_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Score Title"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/white" />
+
+                <TextView
+                    android:id="@+id/tv_composer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="14sp"
+                    android:textColor="@color/white_70" />
+
+            </LinearLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_export"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="⬆ Export"
+                android:textSize="13sp"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:textColor="@color/white"
+                app:strokeColor="@color/white_70" />
+
+        </LinearLayout>
 
     </LinearLayout>
 
@@ -43,7 +69,7 @@
         android:layout_height="0dp"
         android:fillViewport="true"
         app:layout_constraintTop_toBottomOf="@id/layout_header"
-        app:layout_constraintBottom_toTopOf="@id/layout_controls"
+        app:layout_constraintBottom_toTopOf="@id/layout_edit_toolbar"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
@@ -54,6 +80,77 @@
             android:minHeight="600dp" />
 
     </ScrollView>
+
+    <!-- Edit toolbar (shown when a note is selected) -->
+    <LinearLayout
+        android:id="@+id/layout_edit_toolbar"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="@color/surface"
+        android:gravity="center"
+        android:paddingHorizontal="8dp"
+        android:paddingVertical="6dp"
+        android:elevation="6dp"
+        android:visibility="gone"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/layout_controls">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_pitch_up"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="▲ Pitch"
+            android:textSize="12sp"
+            android:layout_marginEnd="4dp"
+            style="@style/Widget.Material3.Button.OutlinedButton" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_pitch_down"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="▼ Pitch"
+            android:textSize="12sp"
+            android:layout_marginEnd="4dp"
+            style="@style/Widget.Material3.Button.OutlinedButton" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_dur_shorter"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="◂ Dur"
+            android:textSize="12sp"
+            android:layout_marginEnd="4dp"
+            style="@style/Widget.Material3.Button.OutlinedButton" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_dur_longer"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Dur ▸"
+            android:textSize="12sp"
+            android:layout_marginEnd="4dp"
+            style="@style/Widget.Material3.Button.OutlinedButton" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_delete_note"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="✕ Del"
+            android:textSize="12sp"
+            android:layout_marginEnd="4dp"
+            style="@style/Widget.Material3.Button.OutlinedButton" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_save_score"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="💾 Save"
+            android:textSize="12sp"
+            style="@style/Widget.Material3.Button.TonalButton" />
+
+    </LinearLayout>
 
     <!-- Playback controls -->
     <LinearLayout
@@ -185,6 +282,49 @@
                 android:text="100%"
                 android:textSize="13sp"
                 android:gravity="end" />
+
+        </LinearLayout>
+
+        <!-- Transpose control -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="4dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Transpose:"
+                android:textSize="13sp"
+                android:paddingEnd="8dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_transpose_down"
+                android:layout_width="40dp"
+                android:layout_height="36dp"
+                android:text="−"
+                android:textSize="18sp"
+                android:padding="0dp"
+                style="@style/Widget.Material3.Button.OutlinedButton" />
+
+            <TextView
+                android:id="@+id/tv_transpose_value"
+                android:layout_width="60dp"
+                android:layout_height="wrap_content"
+                android:text="0 st"
+                android:textSize="13sp"
+                android:gravity="center" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_transpose_up"
+                android:layout_width="40dp"
+                android:layout_height="36dp"
+                android:text="+"
+                android:textSize="18sp"
+                android:padding="0dp"
+                style="@style/Widget.Material3.Button.OutlinedButton" />
 
         </LinearLayout>
 

@@ -80,4 +80,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleFavorite(entity: ScoreEntity) = viewModelScope.launch {
         repository.setFavorite(entity.id, !entity.isFavorite)
     }
+
+    fun renameScore(entity: ScoreEntity, newTitle: String) = viewModelScope.launch {
+        repository.renameScore(entity.id, newTitle)
+    }
 }

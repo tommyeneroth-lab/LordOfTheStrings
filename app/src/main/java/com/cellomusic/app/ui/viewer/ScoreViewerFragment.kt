@@ -1,5 +1,6 @@
 package com.cellomusic.app.ui.viewer
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.*
 import android.widget.SeekBar
@@ -28,11 +29,13 @@ class ScoreViewerFragment : Fragment() {
         viewModel.loadScore(requireContext(), scoreId)
 
         setupPlaybackControls()
+        setupEditToolbar()
         observeViewModel()
 
-        // Tap any note to move the cursor and seek playback to that position
+        // Tap any note to seek playback AND toggle edit selection
         binding.scoreCanvas.onNoteClicked = { measureNum, noteIdx ->
             viewModel.seekToNote(measureNum, noteIdx)
+            viewModel.selectNote(measureNum, noteIdx)
         }
     }
 
@@ -72,6 +75,27 @@ class ScoreViewerFragment : Fragment() {
             }
         }
 
+        // Export button
+        binding.btnExport.setOnClickListener { showExportDialog() }
+
+        // Transpose controls (-12 to +12 semitones)
+        binding.btnTransposeDown.setOnClickListener {
+            val current = viewModel.transposeSteps.value
+            if (current > -12) {
+                val newVal = current - 1
+                viewModel.setTranspose(newVal)
+                binding.tvTransposeValue.text = formatTranspose(newVal)
+            }
+        }
+        binding.btnTransposeUp.setOnClickListener {
+            val current = viewModel.transposeSteps.value
+            if (current < 12) {
+                val newVal = current + 1
+                viewModel.setTranspose(newVal)
+                binding.tvTransposeValue.text = formatTranspose(newVal)
+            }
+        }
+
         // Progress seekbar
         binding.seekbarProgress.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
@@ -80,6 +104,26 @@ class ScoreViewerFragment : Fragment() {
             override fun onStartTrackingTouch(sb: SeekBar) {}
             override fun onStopTrackingTouch(sb: SeekBar) {}
         })
+    }
+
+    private fun setupEditToolbar() {
+        binding.btnPitchUp.setOnClickListener { viewModel.pitchUp() }
+        binding.btnPitchDown.setOnClickListener { viewModel.pitchDown() }
+        binding.btnDurShorter.setOnClickListener { viewModel.durationShorter() }
+        binding.btnDurLonger.setOnClickListener { viewModel.durationLonger() }
+        binding.btnDeleteNote.setOnClickListener { viewModel.deleteNote() }
+        binding.btnSaveScore.setOnClickListener { viewModel.saveScore(requireContext()) }
+    }
+
+    private fun showExportDialog() {
+        val options = arrayOf("🎵 Export as MIDI", "📄 Export as MusicXML", "🖨 Export as PDF")
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Export Score")
+            .setItems(options) { _, which ->
+                val format = when (which) { 0 -> "midi"; 1 -> "musicxml"; else -> "pdf" }
+                viewModel.exportScore(requireContext(), format)
+            }
+            .show()
     }
 
     private fun observeViewModel() {
@@ -114,6 +158,33 @@ class ScoreViewerFragment : Fragment() {
                 }
             }
         }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.exportIntent.collect { intent ->
+                intent?.let {
+                    startActivity(Intent.createChooser(it, "Export score"))
+                    viewModel.clearExportIntent()
+                }
+            }
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.selectedNotePos.collect { pos ->
+                if (pos != null) {
+                    binding.layoutEditToolbar.visibility = View.VISIBLE
+                    binding.scoreCanvas.setSelectedNote(pos.first, pos.second)
+                } else {
+                    binding.layoutEditToolbar.visibility = View.GONE
+                    binding.scoreCanvas.clearSelection()
+                }
+            }
+        }
+    }
+
+    private fun formatTranspose(steps: Int): String = when {
+        steps > 0 -> "+$steps st"
+        steps < 0 -> "$steps st"
+        else -> "0 st"
     }
 
     override fun onDestroyView() {

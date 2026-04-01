@@ -61,7 +61,7 @@ class OmrProcessor(private val context: Context) {
         val warnings = mutableListOf<String>()
 
         onProgress?.invoke("Scaling image…")
-        val bmp = scaleBitmap(bitmap, maxDim = 1600)
+        val bmp = scaleBitmap(bitmap, maxDim = 2400)
         val imgW = bmp.width; val imgH = bmp.height
 
         onProgress?.invoke("Converting to grayscale…")
@@ -90,14 +90,8 @@ class OmrProcessor(private val context: Context) {
         // never partially erased the way noStaff can be.
         val barlineMap = detectBarlines(binary, imgW, imgH, staffSystems)
 
-        onProgress?.invoke("Separating noteheads from beams and stems…")
-        val noteheadOnly = separateNoteheads(noStaff, imgW, imgH, staffSystems)
-
-        onProgress?.invoke("Finding music symbols…")
-        val components = connectedComponents(noteheadOnly, imgW, imgH, staffSystems)
-
-        onProgress?.invoke("Classifying ${components.size} symbol candidate(s)…")
-        val symbols = classifySymbols(components, staffSystems)
+        onProgress?.invoke("Scanning staff positions for noteheads…")
+        val symbols = findNoteheadsFromStrips(noStaff, imgW, imgH, staffSystems)
 
         val noteCount = symbols.count { it.type in NOTEHEAD_TYPES }
         onProgress?.invoke("Building score — $noteCount note(s) found…")
@@ -241,8 +235,8 @@ class OmrProcessor(private val context: Context) {
             maxRun[y] = maxR; density[y] = tot
         }
 
-        val runThr = (w * 0.15f).toInt()   // 15% — handles staves with margins, clef, key sig breaks
-        val denThr = (w * 0.12f).toInt()
+        val runThr = (w * 0.12f).toInt()   // 12% — handles staves with margins, clef, key sig breaks
+        val denThr = (w * 0.08f).toInt()
 
         // Local maxima in maxRun (above thresholds) → candidate staff-line rows
         val candidates = mutableListOf<Int>()
@@ -415,10 +409,13 @@ class OmrProcessor(private val context: Context) {
     ): Array<BooleanArray> {
         val result = Array(h) { y -> noStaff[y].copyOf() }
         val avgSp = if (systems.isEmpty()) 10f else systems.map { it.spacing }.average().toFloat()
-        val beamHThresh = avgSp * 1.8f
-        val beamVThresh = avgSp * 0.45f
-        val stemHThresh = avgSp * 0.5f   // wider: catches anti-aliased stems in clean PDFs
-        val stemVThresh = avgSp * 1.0f   // shorter: catches even short stems on small noteheads
+        // beamHThresh: beams span ≥ 2 note widths; 1.2×sp catches even closely-spaced beams
+        val beamHThresh = avgSp * 1.2f
+        // beamVThresh: clean PDF beams are ~2.5-3pt thick; at typical render scale ≈ 0.55×sp
+        // Use 0.70×sp to safely clear all such beams without touching noteheads (≥ 1.0×sp tall)
+        val beamVThresh = avgSp * 0.70f
+        val stemHThresh = avgSp * 0.45f  // only erase truly thin stems (≤ ~1-2px at normal scale)
+        val stemVThresh = avgSp * 1.1f   // must be clearly taller than a notehead to qualify as stem
 
         for (y in 0 until h) {
             for (x in 0 until w) {
@@ -502,6 +499,7 @@ class OmrProcessor(private val context: Context) {
         val visited = Array(h) { BooleanArray(w) }
         val result  = mutableListOf<Component>()
         val stack   = IntArray(w * h * 2)   // worst case: whole image is one component
+        val avgSp   = if (systems.isEmpty()) 10.0 else systems.map { it.spacing }.average()
 
         for (sy in 0 until h) {
             for (sx in 0 until w) {
@@ -513,11 +511,13 @@ class OmrProcessor(private val context: Context) {
 
                 var minX = sx; var maxX = sx; var minY = sy; var maxY = sy; var count = 0
                 var sumY = 0L  // for pixel-weighted vertical centroid
+                val rowCounts = HashMap<Int, Int>(32)  // y → pixel count in this component row
 
                 while (sp > 0) {
                     val cy = stack[--sp]; val cx = stack[--sp]
                     count++
                     sumY += cy
+                    rowCounts[cy] = (rowCounts[cy] ?: 0) + 1
                     if (cx < minX) minX = cx; if (cx > maxX) maxX = cx
                     if (cy < minY) minY = cy; if (cy > maxY) maxY = cy
 
@@ -534,9 +534,13 @@ class OmrProcessor(private val context: Context) {
                 val cw = maxX - minX + 1; val ch = maxY - minY + 1
                 if (cw < 2 || ch < 2 || count < 4) continue
 
-                // Use pixel-weighted centroid Y rather than bounding-box center.
-                // This is more robust when residual stem/beam fragments shift the bbox.
-                val centY = (sumY / count).toInt()
+                // For tall components (notehead + residual stem stub), the pixel-weighted
+                // centroid is pulled toward the stem and gives the wrong staff position.
+                // Instead use the y-row with the most pixels — that's the notehead body.
+                val rawCentY = (sumY / count).toInt()
+                val centY = if (ch > avgSp * 1.8) {
+                    rowCounts.maxByOrNull { it.value }?.key ?: rawCentY
+                } else rawCentY
                 val nearest = systems.minByOrNull { abs((it.top + it.bottom) / 2 - centY) }
 
                 // Reject components that are too far from any staff — these are title text,
@@ -631,17 +635,18 @@ class OmrProcessor(private val context: Context) {
 
                 // ── Noteheads ────────────────────────────────────────────────
                 // Whole note: wider-than-tall ellipse, medium fill (hollow with thick border)
-                comp.width  in ((sp * 1.0f).toInt())..(( sp * 2.8f).toInt()) &&
-                comp.height in ((sp * 0.35f).toInt())..((sp * 1.1f).toInt()) &&
-                fill in 0.18f..0.76f && ar > 1.1f ->
+                comp.width  in ((sp * 0.9f).toInt())..(( sp * 3.2f).toInt()) &&
+                comp.height in ((sp * 0.28f).toInt())..((sp * 1.3f).toInt()) &&
+                fill in 0.12f..0.80f && ar > 1.0f ->
                     Pair(SymbolType.NOTEHEAD_WHOLE, 0.72f)
 
-                // Normal notehead: roughly circular, size 0.4–1.5×sp
-                comp.width  in ((sp * 0.40f).toInt())..(( sp * 1.8f).toInt()) &&
-                comp.height in ((sp * 0.30f).toInt())..(( sp * 1.3f).toInt()) -> {
+                // Normal notehead: roughly circular, size 0.3–2.0×sp
+                // Height allowed up to 2.0×sp to handle residual short stem stub after separation
+                comp.width  in ((sp * 0.28f).toInt())..(( sp * 2.2f).toInt()) &&
+                comp.height in ((sp * 0.22f).toInt())..(( sp * 2.0f).toInt()) -> {
                     when {
-                        fill > 0.45f -> Pair(SymbolType.NOTEHEAD_FILLED, 0.88f)
-                        fill > 0.25f && ar in 0.55f..2.6f ->
+                        fill > 0.35f -> Pair(SymbolType.NOTEHEAD_FILLED, 0.88f)
+                        fill > 0.18f && ar in 0.45f..3.0f ->
                             Pair(SymbolType.NOTEHEAD_OPEN, 0.78f)
                         else -> Pair(SymbolType.UNKNOWN, 0.2f)
                     }
@@ -666,6 +671,122 @@ class OmrProcessor(private val context: Context) {
         }
 
         return result.sortedWith(compareBy({ it.staff?.top ?: 0 }, { it.x }))
+    }
+
+    // ── Strip-based notehead detection ──────────────────────────────────────
+
+    /**
+     * Finds noteheads by scanning horizontal strips at each diatonic staff position.
+     *
+     * For each position (line/space/ledger line) within ±6 half-steps of the staff:
+     *   1. Build a strip of height ≈ 0.84×sp centred on that diatonic y.
+     *   2. Compute per-column black-pixel count within the strip.
+     *   3. Find blobs (contiguous columns with density ≥ 2).
+     *   4. Accept blobs with width ∈ [0.28×sp, 1.95×sp] — stems are too narrow,
+     *      beams spanning several noteheads are too wide.
+     *   5. Classify by fill ratio: ≥ 0.36 → filled, ≥ 0.14 → open/whole.
+     *
+     * Duplicates from adjacent positions are resolved by keeping the detection
+     * with the higher confidence (fill).
+     */
+    private fun findNoteheadsFromStrips(
+        noStaff: Array<BooleanArray>, imgW: Int, imgH: Int,
+        systems: List<StaffSystem>
+    ): List<DetectedSymbol> {
+        val result = mutableListOf<DetectedSymbol>()
+
+        for (sys in systems) {
+            val sp      = sys.spacing
+            val halfSp  = sp / 2f
+            val stripHalf = (sp * 0.42f).toInt().coerceAtLeast(2)
+            val minBlobW  = (sp * 0.28f).toInt().coerceAtLeast(2)
+            val maxBlobW  = (sp * 1.95f).toInt()
+            val xLeft     = sys.left.coerceAtLeast(0)
+            val xRight    = sys.right.coerceAtMost(imgW - 1)
+            val density   = IntArray(imgW)
+
+            // Positions -6..14 covers 3 ledger lines above and below the 5-line staff
+            for (pos in -6..14) {
+                val centerYf = when {
+                    pos <= 0 -> sys.lines[0] + pos * halfSp
+                    pos >= 8 -> sys.lines[4] + (pos - 8) * halfSp
+                    else -> {
+                        val li = pos / 2
+                        if (pos % 2 == 0) sys.lines[li].toFloat()
+                        else sys.lines[li] + halfSp
+                    }
+                }
+                val stripTop = (centerYf - stripHalf).toInt().coerceAtLeast(0)
+                val stripBot = (centerYf + stripHalf).toInt().coerceAtMost(imgH - 1)
+                val stripH   = (stripBot - stripTop + 1).coerceAtLeast(1)
+
+                // Column density within this strip
+                for (x in xLeft..xRight) {
+                    var cnt = 0
+                    for (y in stripTop..stripBot) if (noStaff[y][x]) cnt++
+                    density[x] = cnt
+                }
+
+                // Find blobs (contiguous columns with density ≥ 2)
+                var x = xLeft
+                while (x <= xRight) {
+                    if (density[x] < 2) { x++; continue }
+                    val blobStart = x
+                    while (x <= xRight && density[x] >= 2) x++
+                    val blobEnd = x - 1
+                    val blobW   = blobEnd - blobStart + 1
+
+                    if (blobW in minBlobW..maxBlobW) {
+                        var black = 0
+                        for (bx in blobStart..blobEnd) black += density[bx]
+                        val fill = black.toFloat() / (blobW * stripH).coerceAtLeast(1)
+                        val ar   = blobW.toFloat() / stripH.coerceAtLeast(1)
+                        val cx   = (blobStart + blobEnd) / 2
+
+                        val (type, conf) = when {
+                            blobW > sp * 0.90f && ar > 1.05f && fill in 0.13f..0.72f ->
+                                Pair(SymbolType.NOTEHEAD_WHOLE, 0.74f)
+                            fill >= 0.36f ->
+                                Pair(SymbolType.NOTEHEAD_FILLED, 0.88f)
+                            fill >= 0.13f ->
+                                Pair(SymbolType.NOTEHEAD_OPEN, 0.75f)
+                            else -> Pair(SymbolType.UNKNOWN, 0f)
+                        }
+
+                        if (conf > 0f) {
+                            result.add(DetectedSymbol(
+                                type = type, x = cx, y = centerYf.toInt(),
+                                width = blobW, height = stripH,
+                                staff = sys, staffPosition = pos.toFloat(), confidence = conf
+                            ))
+                        }
+                    }
+                }
+            }
+        }
+
+        // Deduplicate: if two detections share the same staff and are close in x and
+        // staff position, keep the one with higher confidence (better-centred blob).
+        val sorted  = result.sortedByDescending { it.confidence }
+        val removed = BooleanArray(sorted.size)
+        val kept    = mutableListOf<DetectedSymbol>()
+
+        for (i in sorted.indices) {
+            if (removed[i]) continue
+            kept.add(sorted[i])
+            val sp = sorted[i].staff?.spacing ?: 10f
+            for (j in i + 1 until sorted.size) {
+                if (removed[j]) continue
+                val dj = sorted[j]
+                if (dj.staff === sorted[i].staff &&
+                    abs(dj.x - sorted[i].x) < sp * 0.60f &&
+                    abs(dj.staffPosition - sorted[i].staffPosition) < 1.6f) {
+                    removed[j] = true
+                }
+            }
+        }
+
+        return kept.sortedWith(compareBy({ it.staff?.top ?: 0 }, { it.x }))
     }
 
     // ── Score assembly ───────────────────────────────────────────────────────
@@ -718,10 +839,8 @@ class OmrProcessor(private val context: Context) {
                 val mSyms = sysSyms.filter { it.x in lo..hi }
                 val notes = extractNotes(mSyms, system, noStaff, w, h)
 
-                if (notes.isEmpty()) {
-                    // Skip empty measures mid-score, but always add first measure
-                    if (measureNum > 1) continue
-                }
+                // Always add the measure — empty measures are fine structurally.
+                // (Previously skipped empty mid-score measures which hid real measures after them.)
 
                 // If a "measure" has too many notes, it's likely a mis-split.
                 // Chunk it into sub-measures of ≤16 notes each rather than discarding.
