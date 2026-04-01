@@ -64,6 +64,16 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    fun importMp3(uri: Uri) = viewModelScope.launch {
+        _omrProgress.value = "Analysing audio…"
+        val result = repository.importMp3(uri) { msg -> _omrProgress.value = msg }
+        _omrProgress.value = null
+        _importStatus.value = result.fold(
+            onSuccess = { "MP3 transcribed successfully" },
+            onFailure = { "MP3 import failed: ${it.message}" }
+        )
+    }
+
     fun importMidi(uri: Uri) = viewModelScope.launch {
         _importStatus.value = "Processing MIDI..."
         val result = repository.importMidi(uri)

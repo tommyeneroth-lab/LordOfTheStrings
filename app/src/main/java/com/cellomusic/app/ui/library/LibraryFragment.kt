@@ -50,6 +50,12 @@ class LibraryFragment : Fragment() {
         uri?.let { viewModel.importMidi(it) }
     }
 
+    private val pickMp3 = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { viewModel.importMp3(it) }
+    }
+
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentLibraryBinding.inflate(inflater, container, false)
         setHasOptionsMenu(true)
@@ -81,7 +87,14 @@ class LibraryFragment : Fragment() {
     }
 
     private fun showImportDialog() {
-        val options = arrayOf("Import MusicXML", "Import PDF", "Import JPEG/Photo", "Import MIDI", "Take Photo")
+        val options = arrayOf(
+            "Import MusicXML",
+            "Import PDF",
+            "Import JPEG/Photo",
+            "Import MIDI",
+            "Import MP3 (audio transcription)",
+            "Take Photo"
+        )
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Import Score")
             .setItems(options) { _, which ->
@@ -90,7 +103,8 @@ class LibraryFragment : Fragment() {
                     1 -> pickPdf.launch("application/pdf")
                     2 -> pickJpeg.launch("image/jpeg")
                     3 -> pickMidi.launch("*/*")
-                    4 -> openCamera()
+                    4 -> pickMp3.launch("audio/*")
+                    5 -> openCamera()
                 }
             }
             .show()

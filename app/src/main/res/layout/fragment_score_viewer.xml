@@ -4,7 +4,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/score_background">
+    android:background="@color/score_dark_bg">
 
     <!-- Score title bar -->
     <LinearLayout
@@ -12,7 +12,7 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="@color/primary"
+        android:background="@color/score_dark_surface"
         android:padding="12dp"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -49,6 +49,19 @@
             </LinearLayout>
 
             <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_save_score"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="💾"
+                android:textSize="16sp"
+                android:layout_marginEnd="4dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="12dp"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:textColor="@color/white"
+                app:strokeColor="@color/white_70" />
+
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_export"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -77,6 +90,7 @@
             android:id="@+id/score_canvas"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:background="@color/score_dark_bg"
             android:minHeight="600dp" />
 
     </ScrollView>
@@ -87,7 +101,7 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:background="@color/surface"
+        android:background="@color/score_dark_surface"
         android:gravity="center"
         android:paddingHorizontal="8dp"
         android:paddingVertical="6dp"
@@ -103,7 +117,9 @@
             android:layout_height="36dp"
             android:text="▲ Pitch"
             android:textSize="12sp"
+            android:textColor="@color/score_dark_ink"
             android:layout_marginEnd="4dp"
+            app:strokeColor="@color/white_70"
             style="@style/Widget.Material3.Button.OutlinedButton" />
 
         <com.google.android.material.button.MaterialButton
@@ -112,7 +128,9 @@
             android:layout_height="36dp"
             android:text="▼ Pitch"
             android:textSize="12sp"
+            android:textColor="@color/score_dark_ink"
             android:layout_marginEnd="4dp"
+            app:strokeColor="@color/white_70"
             style="@style/Widget.Material3.Button.OutlinedButton" />
 
         <com.google.android.material.button.MaterialButton
@@ -121,7 +139,9 @@
             android:layout_height="36dp"
             android:text="◂ Dur"
             android:textSize="12sp"
+            android:textColor="@color/score_dark_ink"
             android:layout_marginEnd="4dp"
+            app:strokeColor="@color/white_70"
             style="@style/Widget.Material3.Button.OutlinedButton" />
 
         <com.google.android.material.button.MaterialButton
@@ -130,7 +150,9 @@
             android:layout_height="36dp"
             android:text="Dur ▸"
             android:textSize="12sp"
+            android:textColor="@color/score_dark_ink"
             android:layout_marginEnd="4dp"
+            app:strokeColor="@color/white_70"
             style="@style/Widget.Material3.Button.OutlinedButton" />
 
         <com.google.android.material.button.MaterialButton
@@ -139,16 +161,9 @@
             android:layout_height="36dp"
             android:text="✕ Del"
             android:textSize="12sp"
-            android:layout_marginEnd="4dp"
+            android:textColor="@color/score_dark_ink"
+            app:strokeColor="@color/white_70"
             style="@style/Widget.Material3.Button.OutlinedButton" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_save_score"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:text="💾 Save"
-            android:textSize="12sp"
-            style="@style/Widget.Material3.Button.TonalButton" />
 
     </LinearLayout>
 
@@ -158,7 +173,7 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="@color/surface"
+        android:background="@color/score_dark_surface"
         android:elevation="8dp"
         android:paddingHorizontal="16dp"
         android:paddingVertical="8dp"
@@ -185,7 +200,7 @@
                 android:layout_height="wrap_content"
                 android:text="Measure 1"
                 android:textSize="12sp"
-                android:textColor="@color/secondary_text"
+                android:textColor="@color/score_dark_secondary"
                 android:paddingStart="8dp" />
 
         </LinearLayout>
@@ -203,7 +218,9 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="■ Stop"
+                android:textColor="@color/score_dark_ink"
                 android:layout_marginEnd="8dp"
+                app:strokeColor="@color/white_70"
                 style="@style/Widget.Material3.Button.OutlinedButton" />
 
             <com.google.android.material.button.MaterialButton
@@ -228,6 +245,7 @@
                 android:layout_height="wrap_content"
                 android:text="Speed:"
                 android:textSize="13sp"
+                android:textColor="@color/score_dark_ink"
                 android:paddingEnd="8dp" />
 
             <com.google.android.material.slider.Slider
@@ -246,6 +264,7 @@
                 android:layout_height="wrap_content"
                 android:text="100%"
                 android:textSize="13sp"
+                android:textColor="@color/score_dark_ink"
                 android:gravity="end" />
 
         </LinearLayout>
@@ -263,6 +282,7 @@
                 android:layout_height="wrap_content"
                 android:text="Volume:"
                 android:textSize="13sp"
+                android:textColor="@color/score_dark_ink"
                 android:paddingEnd="8dp" />
 
             <com.google.android.material.slider.Slider
@@ -281,6 +301,7 @@
                 android:layout_height="wrap_content"
                 android:text="100%"
                 android:textSize="13sp"
+                android:textColor="@color/score_dark_ink"
                 android:gravity="end" />
 
         </LinearLayout>
@@ -298,6 +319,7 @@
                 android:layout_height="wrap_content"
                 android:text="Transpose:"
                 android:textSize="13sp"
+                android:textColor="@color/score_dark_ink"
                 android:paddingEnd="8dp" />
 
             <com.google.android.material.button.MaterialButton
@@ -315,6 +337,7 @@
                 android:layout_height="wrap_content"
                 android:text="0 st"
                 android:textSize="13sp"
+                android:textColor="@color/score_dark_ink"
                 android:gravity="center" />
 
             <com.google.android.material.button.MaterialButton

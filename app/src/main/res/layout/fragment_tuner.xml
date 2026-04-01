@@ -1,144 +1,232 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout
+<ScrollView
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/background">
+    android:background="@color/oak_dark"
+    android:fillViewport="true">
 
-    <TextView
-        android:id="@+id/tv_title"
-        android:layout_width="wrap_content"
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Cello Tuner"
-        android:textSize="22sp"
-        android:textStyle="bold"
-        android:paddingTop="16dp"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        android:paddingBottom="24dp">
 
-    <!-- Tuner gauge -->
-    <com.cellomusic.app.ui.tuner.view.TunerGaugeView
-        android:id="@+id/tuner_gauge"
-        android:layout_width="0dp"
-        android:layout_height="280dp"
-        app:layout_constraintTop_toBottomOf="@id/tv_title"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginTop="8dp" />
+        <!-- Top wood-grain banner -->
+        <View
+            android:id="@+id/banner_top"
+            android:layout_width="0dp"
+            android:layout_height="6dp"
+            android:background="@color/antique_gold"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- Note name display -->
-    <TextView
-        android:id="@+id/tv_note_detected"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="—"
-        android:textSize="48sp"
-        android:textStyle="bold"
-        app:layout_constraintTop_toBottomOf="@id/tuner_gauge"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginTop="8dp" />
+        <TextView
+            android:id="@+id/tv_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="✦  CELLO TUNER  ✦"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.08"
+            android:textColor="@color/antique_gold"
+            android:paddingTop="20dp"
+            android:paddingBottom="4dp"
+            app:layout_constraintTop_toBottomOf="@id/banner_top"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- Frequency display -->
-    <TextView
-        android:id="@+id/tv_frequency"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Tap Start to begin"
-        android:textSize="16sp"
-        android:textColor="@color/secondary_text"
-        app:layout_constraintTop_toBottomOf="@id/tv_note_detected"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        <!-- Decorative rule -->
+        <View
+            android:id="@+id/divider_title"
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_marginHorizontal="40dp"
+            android:layout_marginTop="8dp"
+            android:background="@color/antique_gold_dim"
+            app:layout_constraintTop_toBottomOf="@id/tv_title"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- Tuning status -->
-    <TextView
-        android:id="@+id/tv_tuning_status"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:textSize="14sp"
-        android:textStyle="bold"
-        app:layout_constraintTop_toBottomOf="@id/tv_frequency"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginTop="4dp" />
-
-    <!-- Reference tone: play open string sounds -->
-    <TextView
-        android:id="@+id/tv_reference_label"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Play Reference Tone:"
-        android:textSize="13sp"
-        android:textColor="@color/secondary_text"
-        app:layout_constraintTop_toBottomOf="@id/tv_tuning_status"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginTop="20dp" />
-
-    <LinearLayout
-        android:id="@+id/layout_strings"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center"
-        android:layout_marginTop="8dp"
-        android:layout_marginHorizontal="16dp"
-        app:layout_constraintTop_toBottomOf="@id/tv_reference_label"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_string_c"
+        <!-- Tuner gauge — raised oak panel -->
+        <LinearLayout
+            android:id="@+id/panel_gauge"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="C2"
-            android:layout_marginHorizontal="4dp"
-            style="@style/Widget.Material3.Button.OutlinedButton" />
+            android:orientation="vertical"
+            android:background="@drawable/bg_oak_panel"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginTop="16dp"
+            android:padding="12dp"
+            app:layout_constraintTop_toBottomOf="@id/divider_title"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_string_g"
+            <com.cellomusic.app.ui.tuner.view.TunerGaugeView
+                android:id="@+id/tuner_gauge"
+                android:layout_width="match_parent"
+                android:layout_height="240dp" />
+
+        </LinearLayout>
+
+        <!-- Note name display -->
+        <TextView
+            android:id="@+id/tv_note_detected"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="—"
+            android:textSize="52sp"
+            android:textStyle="bold"
+            android:textColor="@color/aged_ivory"
+            android:fontFamily="serif"
+            app:layout_constraintTop_toBottomOf="@id/panel_gauge"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            android:layout_marginTop="12dp" />
+
+        <!-- Frequency display -->
+        <TextView
+            android:id="@+id/tv_frequency"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Tap Start to begin"
+            android:textSize="14sp"
+            android:textColor="@color/aged_ivory_dim"
+            android:fontFamily="serif"
+            app:layout_constraintTop_toBottomOf="@id/tv_note_detected"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <!-- Tuning status -->
+        <TextView
+            android:id="@+id/tv_tuning_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:fontFamily="serif"
+            android:textColor="@color/antique_gold"
+            app:layout_constraintTop_toBottomOf="@id/tv_frequency"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            android:layout_marginTop="4dp" />
+
+        <!-- Divider -->
+        <View
+            android:id="@+id/divider_strings"
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_marginHorizontal="40dp"
+            android:layout_marginTop="18dp"
+            android:background="@color/antique_gold_dim"
+            app:layout_constraintTop_toBottomOf="@id/tv_tuning_status"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <!-- Reference tone label -->
+        <TextView
+            android:id="@+id/tv_reference_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Open String Reference"
+            android:textSize="12sp"
+            android:letterSpacing="0.1"
+            android:textColor="@color/antique_gold_dim"
+            android:fontFamily="serif"
+            app:layout_constraintTop_toBottomOf="@id/divider_strings"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            android:layout_marginTop="14dp" />
+
+        <!-- String buttons in oak panel -->
+        <LinearLayout
+            android:id="@+id/layout_strings"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="G2"
-            android:layout_marginHorizontal="4dp"
-            style="@style/Widget.Material3.Button.OutlinedButton" />
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginTop="8dp"
+            android:layout_marginHorizontal="16dp"
+            app:layout_constraintTop_toBottomOf="@id/tv_reference_label"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
 
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_string_c"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="C2"
+                android:textColor="@color/aged_ivory"
+                android:layout_marginHorizontal="4dp"
+                app:strokeColor="@color/antique_gold_dim"
+                app:backgroundTint="@color/oak_panel"
+                style="@style/Widget.Material3.Button.OutlinedButton" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_string_g"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="G2"
+                android:textColor="@color/aged_ivory"
+                android:layout_marginHorizontal="4dp"
+                app:strokeColor="@color/antique_gold_dim"
+                app:backgroundTint="@color/oak_panel"
+                style="@style/Widget.Material3.Button.OutlinedButton" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_string_d"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="D3"
+                android:textColor="@color/aged_ivory"
+                android:layout_marginHorizontal="4dp"
+                app:strokeColor="@color/antique_gold_dim"
+                app:backgroundTint="@color/oak_panel"
+                style="@style/Widget.Material3.Button.OutlinedButton" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_string_a"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="A3"
+                android:textColor="@color/aged_ivory"
+                android:layout_marginHorizontal="4dp"
+                app:strokeColor="@color/antique_gold_dim"
+                app:backgroundTint="@color/oak_panel"
+                style="@style/Widget.Material3.Button.OutlinedButton" />
+
+        </LinearLayout>
+
+        <!-- Start/Stop button -->
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_string_d"
+            android:id="@+id/btn_start_stop"
+            android:layout_width="180dp"
+            android:layout_height="52dp"
+            android:text="Start Tuner"
+            android:textColor="@color/oak_deep"
+            android:textStyle="bold"
+            android:textSize="15sp"
+            android:layout_marginTop="24dp"
+            app:backgroundTint="@color/antique_gold"
+            app:cornerRadius="6dp"
+            app:layout_constraintTop_toBottomOf="@id/layout_strings"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <!-- Bottom gold rule -->
+        <View
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="D3"
-            android:layout_marginHorizontal="4dp"
-            style="@style/Widget.Material3.Button.OutlinedButton" />
+            android:layout_height="6dp"
+            android:layout_marginTop="24dp"
+            android:background="@color/antique_gold"
+            app:layout_constraintTop_toBottomOf="@id/btn_start_stop"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_string_a"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="A3"
-            android:layout_marginHorizontal="4dp"
-            style="@style/Widget.Material3.Button.OutlinedButton" />
-
-    </LinearLayout>
-
-    <!-- Start/Stop button -->
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btn_start_stop"
-        android:layout_width="160dp"
-        android:layout_height="wrap_content"
-        android:text="Start Tuner"
-        android:layout_marginTop="20dp"
-        android:layout_marginBottom="16dp"
-        app:layout_constraintTop_toBottomOf="@id/layout_strings"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintBottom_toBottomOf="parent" />
-
-</androidx.constraintlayout.widget.ConstraintLayout>
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</ScrollView>

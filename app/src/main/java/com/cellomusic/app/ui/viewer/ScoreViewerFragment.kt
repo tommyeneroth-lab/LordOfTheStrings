@@ -107,12 +107,17 @@ class ScoreViewerFragment : Fragment() {
     }
 
     private fun setupEditToolbar() {
+        // Persistent save button in the header
+        binding.btnSaveScore.setOnClickListener {
+            viewModel.saveScore(requireContext())
+            android.widget.Toast.makeText(requireContext(), "Score saved", android.widget.Toast.LENGTH_SHORT).show()
+        }
+        // Note edit toolbar (shown when a note is selected)
         binding.btnPitchUp.setOnClickListener { viewModel.pitchUp() }
         binding.btnPitchDown.setOnClickListener { viewModel.pitchDown() }
         binding.btnDurShorter.setOnClickListener { viewModel.durationShorter() }
         binding.btnDurLonger.setOnClickListener { viewModel.durationLonger() }
         binding.btnDeleteNote.setOnClickListener { viewModel.deleteNote() }
-        binding.btnSaveScore.setOnClickListener { viewModel.saveScore(requireContext()) }
     }
 
     private fun showExportDialog() {

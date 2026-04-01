@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Brand colors -->
     <color name="primary">#1A237E</color>
     <color name="primary_variant">#121858</color>
     <color name="secondary">#0288D1</color>
     <color name="secondary_variant">#01579B</color>
+
+    <!-- General backgrounds -->
     <color name="background">#FAFAFA</color>
     <color name="surface">#FFFFFF</color>
-    <color name="score_background">#F5F0E8</color>
     <color name="on_primary">#FFFFFF</color>
     <color name="on_secondary">#FFFFFF</color>
     <color name="on_background">#212121</color>
@@ -15,8 +17,42 @@
     <color name="secondary_text">#757575</color>
     <color name="white">#FFFFFF</color>
     <color name="white_70">#B3FFFFFF</color>
+
+    <!-- Score viewer — dark mode (GUI only, not used in export) -->
+    <color name="score_background">#F5F0E8</color>
+    <color name="score_dark_bg">#111111</color>
+    <color name="score_dark_ink">#F0EEE8</color>
+    <color name="score_dark_secondary">#AAAAAA</color>
+    <color name="score_dark_surface">#1E1E1E</color>
+
+    <!-- Score library — black -->
+    <color name="library_bg">#0A0A0A</color>
+    <color name="library_toolbar_bg">#161616</color>
+    <color name="library_card_bg">#1C1C1C</color>
+    <color name="library_text">#E8E8E8</color>
+    <color name="library_subtext">#888888</color>
+
+    <!-- Dark Oak antique — tuner, metronome, drone, decibel, journal -->
+    <color name="oak_deep">#1C0E07</color>
+    <color name="oak_dark">#2C1810</color>
+    <color name="oak_medium">#5C3A1E</color>
+    <color name="oak_light">#8B6347</color>
+    <color name="oak_grain">#3E2215</color>
+    <color name="oak_panel">#4A2C18</color>
+    <color name="antique_gold">#C9A84C</color>
+    <color name="antique_gold_dim">#8A6E2A</color>
+    <color name="aged_ivory">#F4E4C1</color>
+    <color name="aged_ivory_dim">#C8B89A</color>
+    <color name="brass">#B5860D</color>
+    <color name="brass_bright">#D4A42A</color>
+    <color name="oak_divider">#3C2010</color>
+
+    <!-- Tuner indicators -->
     <color name="tuner_green">#2E7D32</color>
+    <color name="tuner_green_bright">#4CAF50</color>
     <color name="tuner_yellow">#F57F17</color>
     <color name="tuner_red">#C62828</color>
+
+    <!-- Playback cursor -->
     <color name="cursor_highlight">#500078FF</color>
 </resources>

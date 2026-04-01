@@ -51,6 +51,27 @@
         xmlns:tools="http://schemas.android.com/tools" />
 
     <fragment
+        android:id="@+id/droneFragment"
+        android:name="com.cellomusic.app.ui.drone.DroneFragment"
+        android:label="Drone"
+        tools:layout="@layout/fragment_drone"
+        xmlns:tools="http://schemas.android.com/tools" />
+
+    <fragment
+        android:id="@+id/practiceJournalFragment"
+        android:name="com.cellomusic.app.ui.journal.PracticeJournalFragment"
+        android:label="Journal"
+        tools:layout="@layout/fragment_practice_journal"
+        xmlns:tools="http://schemas.android.com/tools" />
+
+    <fragment
+        android:id="@+id/decibelMeterFragment"
+        android:name="com.cellomusic.app.ui.decibel.DecibelMeterFragment"
+        android:label="dB Meter"
+        tools:layout="@layout/fragment_decibel_meter"
+        xmlns:tools="http://schemas.android.com/tools" />
+
+    <fragment
         android:id="@+id/scoreViewerFragment"
         android:name="com.cellomusic.app.ui.viewer.ScoreViewerFragment"
         android:label="Score"

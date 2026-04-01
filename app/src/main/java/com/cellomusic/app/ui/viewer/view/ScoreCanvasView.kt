@@ -44,37 +44,41 @@ class ScoreCanvasView @JvmOverloads constructor(
     private val STEM_LENGTH = STAFF_SPACING * 3.5f
     private val MEASURE_MIN_WIDTH = 80f * dp
 
+    // Ink colour — white in GUI (dark background), black when rendering for export
+    private val INK   = Color.parseColor("#F0EEE8")   // warm off-white for dark bg
+    private val INK_SEC = Color.parseColor("#AAAAAA") // secondary labels on dark bg
+
     // Paint objects (reused for efficiency)
     private val staffPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.BLACK
+        color = INK
         strokeWidth = 1.2f * dp
         style = Paint.Style.STROKE
     }
     private val notePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.BLACK
+        color = INK
         style = Paint.Style.FILL
     }
     private val noteStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.BLACK
+        color = INK
         strokeWidth = 1.5f * dp
         style = Paint.Style.STROKE
     }
     private val stemPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.BLACK
+        color = INK
         strokeWidth = 1.5f * dp
         style = Paint.Style.STROKE
     }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.BLACK
+        color = INK
         textSize = 11f * dp
     }
     private val dynamicPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.BLACK
+        color = INK
         textSize = 12f * dp
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
     }
     private val smallTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.BLACK
+        color = INK_SEC
         textSize = 9f * dp
     }
     private val cursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -82,16 +86,16 @@ class ScoreCanvasView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
     private val cursorBoxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(60, 30, 120, 255)   // semi-transparent blue fill
+        color = Color.argb(60, 30, 120, 255)
         style = Paint.Style.FILL
     }
     private val cursorBoxStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(180, 0, 90, 220)    // slightly opaque blue border
+        color = Color.argb(180, 0, 90, 220)
         strokeWidth = 1.5f * dp
         style = Paint.Style.STROKE
     }
     private val hairpinPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.BLACK
+        color = INK
         strokeWidth = 1.5f * dp
         style = Paint.Style.STROKE
     }
@@ -105,9 +109,27 @@ class ScoreCanvasView @JvmOverloads constructor(
         style = Paint.Style.STROKE
     }
     private val slurPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.BLACK
+        color = INK
         strokeWidth = 1.5f * dp
         style = Paint.Style.STROKE
+    }
+
+    /**
+     * Switches all ink paints to black-on-white for export rendering.
+     * Call before rendering to a PDF/bitmap canvas; the view itself retains dark mode.
+     */
+    fun setExportColors(forExport: Boolean) {
+        val ink = if (forExport) Color.BLACK else INK
+        val sec = if (forExport) Color.DKGRAY else INK_SEC
+        staffPaint.color = ink
+        notePaint.color = ink
+        noteStrokePaint.color = ink
+        stemPaint.color = ink
+        textPaint.color = ink
+        dynamicPaint.color = ink
+        smallTextPaint.color = sec
+        hairpinPaint.color = ink
+        slurPaint.color = ink
     }
 
     // Edit selection state

@@ -3,16 +3,21 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="@color/library_bg">
 
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content">
+        android:layout_height="wrap_content"
+        android:backgroundTint="@color/library_toolbar_bg"
+        app:elevation="4dp">
 
         <androidx.appcompat.widget.Toolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
+            android:background="@color/library_toolbar_bg"
+            app:titleTextColor="@color/library_text"
             app:title="My Score Library" />
 
     </com.google.android.material.appbar.AppBarLayout>
@@ -32,7 +37,7 @@
         android:text="No scores yet.\nTap + to import a score."
         android:gravity="center"
         android:textSize="16sp"
-        android:textColor="@color/secondary_text"
+        android:textColor="@color/library_subtext"
         android:visibility="gone" />
 
     <com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -41,15 +46,17 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
         android:layout_margin="16dp"
+        android:backgroundTint="@color/antique_gold"
         android:contentDescription="Import Score"
+        app:tint="@color/oak_deep"
         app:srcCompat="@android:drawable/ic_input_add" />
 
-    <!-- OMR progress overlay: shown while OMR is running -->
+    <!-- OMR progress overlay -->
     <LinearLayout
         android:id="@+id/omr_progress_overlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#CC000000"
+        android:background="#EE000000"
         android:gravity="center"
         android:orientation="vertical"
         android:padding="32dp"
@@ -59,7 +66,7 @@
             android:layout_width="64dp"
             android:layout_height="64dp"
             android:indeterminate="true"
-            android:indeterminateTint="@color/white" />
+            android:indeterminateTint="@color/antique_gold" />
 
         <TextView
             android:id="@+id/tv_omr_title"
@@ -67,7 +74,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:text="Recognising Score…"
-            android:textColor="@color/white"
+            android:textColor="@color/aged_ivory"
             android:textSize="18sp"
             android:textStyle="bold" />
 
@@ -77,7 +84,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:gravity="center"
-            android:textColor="#CCFFFFFF"
+            android:textColor="@color/aged_ivory_dim"
             android:textSize="14sp" />
 
     </LinearLayout>
