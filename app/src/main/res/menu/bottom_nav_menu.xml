@@ -26,9 +26,5 @@
         android:icon="@android:drawable/ic_menu_edit"
         android:title="Journal" />
 
-    <item
-        android:id="@+id/decibelMeterFragment"
-        android:icon="@android:drawable/ic_media_rew"
-        android:title="dB Meter" />
 
 </menu>

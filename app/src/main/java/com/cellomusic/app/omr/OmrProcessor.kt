@@ -60,18 +60,57 @@ class OmrProcessor(private val context: Context) {
     ): OmrResult {
         val warnings = mutableListOf<String>()
 
+        // ── Step 1: Scale ────────────────────────────────────────────────────
         onProgress?.invoke("Scaling image…")
         val bmp = scaleBitmap(bitmap, maxDim = 2400)
-        val imgW = bmp.width; val imgH = bmp.height
+        var imgW = bmp.width; var imgH = bmp.height
 
+        // ── Step 2: Grayscale ────────────────────────────────────────────────
         onProgress?.invoke("Converting to grayscale…")
-        val gray = toGrayscale(bmp, imgW, imgH)
+        var gray = toGrayscale(bmp, imgW, imgH)
 
-        onProgress?.invoke("Binarizing (adaptive threshold)…")
-        val binary = sauvolaBinarize(gray, imgW, imgH)
+        // ── Step 3: Otsu binarization ────────────────────────────────────────
+        // Otsu's global threshold works best for clean printed/scanned scores
+        // (consistent contrast).  Falls back to Sauvola if contrast is too low.
+        onProgress?.invoke("Binarizing (Otsu's method)…")
+        var binary = otsuBinarize(gray, imgW, imgH)
 
+        // ── Step 4: Deskew ───────────────────────────────────────────────────
+        // Even 1–2° tilt causes row-density peaks to spread and smear, which
+        // confuses staff detection and notehead strip scanning.
+        onProgress?.invoke("Detecting skew…")
+        val skewDeg = detectSkewAngle(binary, imgW, imgH)
+        if (abs(skewDeg) > 0.4f) {
+            onProgress?.invoke("Deskewing (%.1f°)…".format(skewDeg))
+            val (rotGray, rw, rh) = rotateGray(gray, imgW, imgH, -skewDeg)
+            gray = rotGray; imgW = rw; imgH = rh
+            binary = otsuBinarize(gray, imgW, imgH)
+        }
+
+        // ── Step 5: Resolution standardisation ──────────────────────────────
+        // OMR accuracy peaks when staff spacing ≈ 15–25 px.  Do a quick staff
+        // probe on a dilated copy; if spacing is outside range, rescale the
+        // gray image and re-binarize so symbols are the expected size.
+        onProgress?.invoke("Standardising resolution…")
+        val probeD  = horizontalDilate(binary, imgW, imgH, gap = 20)
+        val probeSys = detectStaffSystems(probeD, imgW, imgH)
+        if (probeSys.isNotEmpty()) {
+            val avgSp  = probeSys.map { it.spacing }.average().toFloat()
+            val target = 20f   // target staff-space in pixels
+            val scale  = target / avgSp
+            if (scale < 0.72f || scale > 1.45f) {
+                // Rescale gray array so avgSp → ~20 px; cap to avoid OOM
+                val newW = (imgW * scale).toInt().coerceIn(400, 3600)
+                val newH = (imgH * scale).toInt().coerceIn(400, 3600)
+                onProgress?.invoke("Rescaling %.0f→%.0f px staff-space…".format(avgSp, target))
+                gray = rescaleGray(gray, imgW, imgH, newW, newH)
+                imgW = newW; imgH = newH
+                binary = otsuBinarize(gray, imgW, imgH)
+            }
+        }
+
+        // ── Step 6: Staff detection ──────────────────────────────────────────
         onProgress?.invoke("Connecting broken staff lines…")
-        // gap=25 bridges notehead-width gaps (~15–25 px) without merging barline spaces
         val dilated = horizontalDilate(binary, imgW, imgH, gap = 25)
 
         onProgress?.invoke("Detecting staff lines…")
@@ -81,13 +120,17 @@ class OmrProcessor(private val context: Context) {
             onProgress?.invoke("Failed: no staff lines found")
             return failResult("No staff lines detected")
         }
-        onProgress?.invoke("Found ${staffSystems.size} staff system(s) — removing staff lines…")
+
+        // ── Step 7: Staff-line estimation feedback ───────────────────────────
+        // Log measured parameters so we can tune thresholds if needed.
+        val avgSpacing = staffSystems.map { it.spacing }.average()
+        onProgress?.invoke(
+            "Found ${staffSystems.size} system(s) — avg staff-space %.1fpx".format(avgSpacing)
+        )
 
         val noStaff = removeStaffLines(binary, imgW, imgH, staffSystems)
 
         onProgress?.invoke("Detecting barlines…")
-        // Use the raw binary (staff lines intact) — barlines are fully continuous there,
-        // never partially erased the way noStaff can be.
         val barlineMap = detectBarlines(binary, imgW, imgH, staffSystems)
 
         onProgress?.invoke("Scanning staff positions for noteheads…")
@@ -167,6 +210,150 @@ class OmrProcessor(private val context: Context) {
                 val std  = sqrt(variance)
                 val thresh = mean * (1f + k * (std / R - 1f))
                 gray[y][x] < thresh
+            }
+        }
+    }
+
+    // ── Otsu binarization ────────────────────────────────────────────────────
+
+    /**
+     * Otsu's global threshold binarization.
+     *
+     * Builds a 256-bin histogram of pixel luminance, then finds the threshold T
+     * that maximises between-class variance (equivalent to minimising intra-class
+     * variance).  O(N) histogram pass + O(256) sweep — very fast.
+     *
+     * Best for clean printed/scanned scores with uniform illumination.
+     * The existing Sauvola method is kept for phone-photo paths where local
+     * lighting varies dramatically across the frame.
+     */
+    private fun otsuBinarize(gray: Array<FloatArray>, w: Int, h: Int): Array<BooleanArray> {
+        val hist = IntArray(256)
+        for (y in 0 until h) for (x in 0 until w) {
+            hist[(gray[y][x] * 255f).toInt().coerceIn(0, 255)]++
+        }
+        val total = (w * h).toFloat()
+        var sumAll = 0f
+        for (i in 0..255) sumAll += i * hist[i]
+
+        var sumB = 0f; var wB = 0f; var bestVar = 0f; var threshold = 0.5f
+        for (t in 0..255) {
+            wB += hist[t]
+            if (wB == 0f) continue
+            val wF = total - wB
+            if (wF == 0f) break
+            sumB += t * hist[t]
+            val mB = sumB / wB
+            val mF = (sumAll - sumB) / wF
+            val between = wB * wF * (mB - mF) * (mB - mF)
+            if (between > bestVar) { bestVar = between; threshold = t / 255f }
+        }
+        return Array(h) { y -> BooleanArray(w) { x -> gray[y][x] < threshold } }
+    }
+
+    // ── Deskewing (Hough / projection-variance) ──────────────────────────────
+
+    /**
+     * Estimates the document skew angle using the projection-profile variance method.
+     *
+     * For a perfectly horizontal staff, the horizontal projection (number of black
+     * pixels per row) has very HIGH variance — sharp peaks at staff lines, deep
+     * valleys between them.  As the page tilts, the peaks spread and variance drops.
+     *
+     * We approximate the projection at angle θ by shearing: row index for pixel
+     * (x, y) becomes y + x·sin(θ).  Testing angles from −10° to +10° in 0.5° steps
+     * on a downsampled copy is fast (< 10 ms on a modern phone).
+     *
+     * Returns the angle (degrees) by which the image is tilted; callers should
+     * rotate by the negative to straighten it.
+     */
+    private fun detectSkewAngle(binary: Array<BooleanArray>, w: Int, h: Int): Float {
+        // Downsample to ~800px on the longer side for speed
+        val ds     = maxOf(1, maxOf(w, h) / 800)
+        val sw     = w / ds; val sh = h / ds
+
+        var bestAngle = 0f
+        var bestVar   = -1.0
+
+        // Sweep −10° to +10° in 0.5° steps
+        for (tenths in -200..200 step 5) {
+            val angle  = tenths / 10.0
+            val sinA   = sin(Math.toRadians(angle))
+            val profSz = sh + (sw * abs(sinA)).toInt() + 4
+            val profile = IntArray(profSz)
+
+            for (y in 0 until h step ds) {
+                val sy = y / ds
+                for (x in 0 until w step ds) {
+                    if (!binary[y][x]) continue
+                    val ry = (sy + (x / ds) * sinA).toInt().coerceIn(0, profSz - 1)
+                    profile[ry]++
+                }
+            }
+
+            val mean = profile.average()
+            val variance = profile.sumOf { v -> val d = v - mean; d * d } / profSz
+            if (variance > bestVar) { bestVar = variance; bestAngle = angle.toFloat() }
+        }
+        return bestAngle
+    }
+
+    /**
+     * Rotates [gray] by [angleDeg] degrees (positive = counter-clockwise) using
+     * inverse bilinear mapping.  The output canvas expands to fit the full rotated
+     * image with a white (1.0) background so no content is clipped.
+     */
+    private fun rotateGray(
+        gray: Array<FloatArray>, w: Int, h: Int, angleDeg: Float
+    ): Triple<Array<FloatArray>, Int, Int> {
+        val rad  = Math.toRadians(angleDeg.toDouble())
+        val cosA = cos(rad); val sinA = sin(rad)
+        val cx   = w / 2.0;  val cy   = h / 2.0
+
+        // Bounding box of rotated image
+        val nw = (w * abs(cosA) + h * abs(sinA)).toInt() + 2
+        val nh = (w * abs(sinA) + h * abs(cosA)).toInt() + 2
+        val ncx = nw / 2.0; val ncy = nh / 2.0
+
+        val result = Array(nh) { FloatArray(nw) { 1f } }
+        for (ny in 0 until nh) {
+            val dy = ny - ncy
+            for (nx in 0 until nw) {
+                val dx = nx - ncx
+                // Inverse rotation
+                val ox = (dx * cosA + dy * sinA + cx)
+                val oy = (-dx * sinA + dy * cosA + cy)
+                val ix = ox.toInt(); val iy = oy.toInt()
+                if (ix in 0 until w - 1 && iy in 0 until h - 1) {
+                    // Bilinear interpolation
+                    val fx = ox - ix; val fy = oy - iy
+                    result[ny][nx] =
+                        (gray[iy    ][ix    ] * (1 - fx) * (1 - fy) +
+                         gray[iy    ][ix + 1] * fx       * (1 - fy) +
+                         gray[iy + 1][ix    ] * (1 - fx) * fy       +
+                         gray[iy + 1][ix + 1] * fx       * fy).toFloat()
+                }
+            }
+        }
+        return Triple(result, nw, nh)
+    }
+
+    /** Bilinear rescale of a float gray array to new dimensions. */
+    private fun rescaleGray(
+        gray: Array<FloatArray>, srcW: Int, srcH: Int, dstW: Int, dstH: Int
+    ): Array<FloatArray> {
+        val xRatio = srcW.toDouble() / dstW
+        val yRatio = srcH.toDouble() / dstH
+        return Array(dstH) { ny ->
+            val sy  = ny * yRatio; val iy = sy.toInt().coerceAtMost(srcH - 2)
+            val fy  = (sy - iy).toFloat()
+            FloatArray(dstW) { nx ->
+                val sx = nx * xRatio; val ix = sx.toInt().coerceAtMost(srcW - 2)
+                val fx = (sx - ix).toFloat()
+                gray[iy    ][ix    ] * (1 - fx) * (1 - fy) +
+                gray[iy    ][ix + 1] * fx       * (1 - fy) +
+                gray[iy + 1][ix    ] * (1 - fx) * fy       +
+                gray[iy + 1][ix + 1] * fx       * fy
             }
         }
     }

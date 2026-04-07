@@ -1,12 +1,12 @@
 package com.cellomusic.app.ui.library
 
-import android.app.Activity
-import android.content.Intent
+import android.content.Context
 import android.net.Uri
 import android.os.Bundle
-import android.view.*
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.widget.SearchView
 import androidx.core.os.bundleOf
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
@@ -35,7 +35,15 @@ class LibraryFragment : Fragment() {
     private val pickPdf = registerForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        uri?.let { viewModel.importPdf(it) }
+        uri ?: return@registerForActivityResult
+        val serverUrl = requireContext()
+            .getSharedPreferences("cellomusic_prefs", Context.MODE_PRIVATE)
+            .getString("omr_server_url", "") ?: ""
+        if (serverUrl.isNotEmpty()) {
+            viewModel.importPdfViaServer(uri, serverUrl)
+        } else {
+            viewModel.importPdf(uri)
+        }
     }
 
     private val pickJpeg = registerForActivityResult(
@@ -58,7 +66,6 @@ class LibraryFragment : Fragment() {
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentLibraryBinding.inflate(inflater, container, false)
-        setHasOptionsMenu(true)
         return binding.root
     }
 
@@ -66,6 +73,7 @@ class LibraryFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         setupRecyclerView()
         setupFab()
+        setupToolbar()
         observeViewModel()
     }
 
@@ -77,6 +85,31 @@ class LibraryFragment : Fragment() {
         binding.recyclerScores.apply {
             layoutManager = GridLayoutManager(requireContext(), 2)
             adapter = this@LibraryFragment.adapter
+        }
+    }
+
+    private fun setupToolbar() {
+        binding.toolbar.inflateMenu(R.menu.library_menu)
+
+        // Wire search
+        val searchItem = binding.toolbar.menu.findItem(R.id.action_search)
+        val searchView = searchItem?.actionView as? androidx.appcompat.widget.SearchView
+        searchView?.setOnQueryTextListener(object : androidx.appcompat.widget.SearchView.OnQueryTextListener {
+            override fun onQueryTextSubmit(query: String?) = true
+            override fun onQueryTextChange(newText: String?): Boolean {
+                viewModel.search(newText ?: "")
+                return true
+            }
+        })
+
+        binding.toolbar.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                R.id.action_settings -> {
+                    findNavController().navigate(R.id.action_library_to_settings)
+                    true
+                }
+                else -> false
+            }
         }
     }
 
@@ -209,19 +242,6 @@ class LibraryFragment : Fragment() {
             .setPositiveButton("Delete") { _, _ -> viewModel.deleteScore(entity) }
             .setNegativeButton("Cancel", null)
             .show()
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
-        inflater.inflate(R.menu.library_menu, menu)
-        val searchView = menu.findItem(R.id.action_search)?.actionView as? SearchView
-        searchView?.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
-            override fun onQueryTextSubmit(query: String?) = true
-            override fun onQueryTextChange(newText: String?): Boolean {
-                viewModel.search(newText ?: "")
-                return true
-            }
-        })
     }
 
     override fun onDestroyView() {

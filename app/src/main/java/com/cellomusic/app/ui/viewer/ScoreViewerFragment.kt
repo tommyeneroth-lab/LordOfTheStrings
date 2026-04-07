@@ -112,6 +112,16 @@ class ScoreViewerFragment : Fragment() {
             viewModel.saveScore(requireContext())
             android.widget.Toast.makeText(requireContext(), "Score saved", android.widget.Toast.LENGTH_SHORT).show()
         }
+        // Fingering toggle
+        binding.btnFingering.setOnClickListener { viewModel.toggleFingerings() }
+        // Recording toggle
+        binding.btnRecord.setOnClickListener {
+            if (viewModel.recordingState.value == ScoreViewerViewModel.RecordingState.RECORDING) {
+                viewModel.stopRecording()
+            } else {
+                viewModel.startRecording(requireContext())
+            }
+        }
         // Note edit toolbar (shown when a note is selected)
         binding.btnPitchUp.setOnClickListener { viewModel.pitchUp() }
         binding.btnPitchDown.setOnClickListener { viewModel.pitchDown() }
@@ -182,6 +192,35 @@ class ScoreViewerFragment : Fragment() {
                     binding.layoutEditToolbar.visibility = View.GONE
                     binding.scoreCanvas.clearSelection()
                 }
+            }
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.fingeringsVisible.collect { visible ->
+                binding.scoreCanvas.fingeringsVisible = visible
+                binding.btnFingering.text = if (visible) "Fingering: ON" else "Fingering: OFF"
+            }
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.recordingState.collect { state ->
+                binding.btnRecord.text = when (state) {
+                    ScoreViewerViewModel.RecordingState.RECORDING -> "⏹ Stop Rec"
+                    ScoreViewerViewModel.RecordingState.IDLE -> "⏺ Record"
+                }
+            }
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.recordingUri.collect { uri ->
+                uri ?: return@collect
+                val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "audio/mp4"
+                    putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(android.content.Intent.createChooser(shareIntent, "Share recording"))
+                viewModel.clearRecordingUri()
             }
         }
     }

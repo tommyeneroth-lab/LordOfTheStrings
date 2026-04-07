@@ -2,10 +2,13 @@ package com.cellomusic.app.ui.viewer
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.cellomusic.app.audio.RecordingManager
 import com.cellomusic.app.audio.playback.ScorePlayer
 import com.cellomusic.app.data.repository.ScoreRepository
+import com.cellomusic.app.domain.CelloFingeringAdvisor
 import com.cellomusic.app.domain.model.*
 import com.cellomusic.app.export.ScoreExporter
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -66,6 +69,59 @@ class ScoreViewerViewModel : ViewModel() {
         }
     }
 
+    // ── Fingering ─────────────────────────────────────────────────────────────
+    private val _fingeringsVisible = MutableStateFlow(false)
+    val fingeringsVisible: StateFlow<Boolean> = _fingeringsVisible
+
+    /**
+     * Toggle fingering hints on/off. On first enable the advisor computes
+     * fingerings for all notes; subsequent toggles just show/hide them.
+     */
+    fun toggleFingerings() {
+        val score = _score.value ?: return
+        if (!_fingeringsVisible.value) {
+            // Compute fingerings if none are present yet
+            val hasFingerings = score.parts.any { p ->
+                p.measures.any { m -> m.elements.any { e -> e is Note && e.fingering != null } }
+            }
+            val fingeredScore = if (hasFingerings) score else CelloFingeringAdvisor.suggest(score)
+            _score.value = fingeredScore
+            player?.loadScore(fingeredScore)
+            _fingeringsVisible.value = true
+        } else {
+            _fingeringsVisible.value = false
+        }
+    }
+
+    // ── Recording ─────────────────────────────────────────────────────────────
+    private var recordingManager: RecordingManager? = null
+
+    enum class RecordingState { IDLE, RECORDING }
+
+    private val _recordingState = MutableStateFlow(RecordingState.IDLE)
+    val recordingState: StateFlow<RecordingState> = _recordingState
+
+    private val _recordingUri = MutableStateFlow<Uri?>(null)
+    val recordingUri: StateFlow<Uri?> = _recordingUri
+
+    fun startRecording(context: Context) {
+        if (_recordingState.value == RecordingState.RECORDING) return
+        val mgr = RecordingManager(context)
+        recordingManager = mgr
+        mgr.start(_score.value?.title ?: "Recording")
+        _recordingState.value = RecordingState.RECORDING
+    }
+
+    fun stopRecording() {
+        val uri = recordingManager?.stop()
+        recordingManager = null
+        _recordingState.value = RecordingState.IDLE
+        _recordingUri.value = uri
+    }
+
+    fun clearRecordingUri() { _recordingUri.value = null }
+
+    // ── Transpose ─────────────────────────────────────────────────────────────
     private val _transposeSteps = MutableStateFlow(0)
     val transposeSteps: StateFlow<Int> = _transposeSteps
 
@@ -206,5 +262,6 @@ class ScoreViewerViewModel : ViewModel() {
     override fun onCleared() {
         super.onCleared()
         player?.stop()
+        recordingManager?.cancel()
     }
 }

@@ -8,6 +8,7 @@ import com.cellomusic.app.data.db.entity.ScoreEntity
 import com.cellomusic.app.domain.model.*
 import com.cellomusic.app.musicxml.MusicXmlParser
 import com.cellomusic.app.midi.MidiFileParser
+import com.cellomusic.app.omr.OmrServerClient
 import com.cellomusic.app.omr.OmrProcessor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -106,6 +107,7 @@ class ScoreRepository(private val context: Context) {
                 val renderScale = 3
                 val bitmap = Bitmap.createBitmap(
                     page.width * renderScale, page.height * renderScale, Bitmap.Config.ARGB_8888)
+                bitmap.eraseColor(android.graphics.Color.WHITE)
                 val matrix = android.graphics.Matrix().apply { setScale(renderScale.toFloat(), renderScale.toFloat()) }
                 page.render(bitmap, null, matrix, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                 page.close()
@@ -412,6 +414,95 @@ class ScoreRepository(private val context: Context) {
         }
         return measures.ifEmpty { listOf(Measure(1, clef = Clef(ClefType.BASS),
             timeSignature = TimeSignature(4,4), keySignature = KeySignature(0), elements = emptyList())) }
+    }
+
+    /**
+     * Import a PDF via the remote OMR server at [serverUrl].
+     * The server returns MusicXML which is parsed directly — no on-device OMR.
+     * Falls back to [importPdf] if the server call fails.
+     */
+    suspend fun importPdfViaServer(
+        uri: Uri,
+        serverUrl: String,
+        onProgress: ((String) -> Unit)? = null
+    ): Result<Long> = withContext(Dispatchers.IO) {
+        val pdfFile = copyUriToInternal(uri, "pdf")
+        val title = (displayNameFromUri(uri) ?: pdfFile.nameWithoutExtension)
+            .replace("_", " ").replace("-", " ")
+
+        val scoreId = UUID.randomUUID().toString()
+        val dir = getScoreDir(scoreId); dir.mkdirs()
+        val originalFile = File(dir, "original.pdf")
+        pdfFile.copyTo(originalFile, overwrite = true)
+        val placeholder = emptyScorePlaceholder(scoreId, title, originalFile, "PDF_OMR")
+        val dbId = scoreDao.insertScore(placeholder)
+
+        try {
+            onProgress?.invoke("Sending to OMR server…")
+            val musicXml = OmrServerClient.submitFile(serverUrl, pdfFile)
+            onProgress?.invoke("Parsing MusicXML…")
+            android.util.Log.d("OMR", "MusicXML preview: ${musicXml.take(300)}")
+            // Strip DOCTYPE declaration — XmlPullParser tries to fetch the external DTD URL,
+            // which blocks the parser indefinitely on Android.
+            val cleanXml = musicXml.replace(Regex("<!DOCTYPE[^>]*>"), "")
+            val xmlMeasureCount = cleanXml.split("<measure").size - 1
+            android.util.Log.d("OMR", "cleanXml length=${cleanXml.length} measures_in_xml=$xmlMeasureCount")
+            val score = cleanXml.byteInputStream().use { parser.parse(it) }
+                .copy(id = scoreId, title = title)
+            val measures = score.parts.sumOf { it.measures.size }
+            val notes = score.parts.sumOf { p -> p.measures.sumOf { m -> m.elements.count { it is Note } } }
+            android.util.Log.d("OMR", "Parsed: ${score.parts.size} parts, $measures measures, $notes notes")
+            updateScoreFromOmr(dbId, scoreId, dir, score, "DONE")
+            Result.success(dbId)
+        } catch (e: Exception) {
+            // Server failed — fall back to on-device PDF OMR using the already-copied file
+            onProgress?.invoke("Server failed — falling back to on-device OMR…")
+            try {
+                val pfd = android.os.ParcelFileDescriptor.open(
+                    pdfFile, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+                val renderer = android.graphics.pdf.PdfRenderer(pfd)
+                val allMeasures = mutableListOf<Measure>()
+                var measureOffset = 1
+                var thumbnailBitmap: android.graphics.Bitmap? = null
+                for (pageIndex in 0 until renderer.pageCount) {
+                    val page = renderer.openPage(pageIndex)
+                    val renderScale = 3
+                    val bitmap = android.graphics.Bitmap.createBitmap(
+                        page.width * renderScale, page.height * renderScale,
+                        android.graphics.Bitmap.Config.ARGB_8888)
+                    bitmap.eraseColor(android.graphics.Color.WHITE)
+                    val matrix = android.graphics.Matrix().apply {
+                        setScale(renderScale.toFloat(), renderScale.toFloat())
+                    }
+                    page.render(bitmap, null, matrix,
+                        android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    page.close()
+                    if (pageIndex == 0) thumbnailBitmap = bitmap
+                    val pageProgress: ((String) -> Unit)? = onProgress?.let { cb ->
+                        { msg -> cb("Page ${pageIndex + 1}/${renderer.pageCount}: $msg") }
+                    }
+                    val omrResult = omr.processPage(bitmap, title, pageProgress)
+                    omrResult.score.parts.firstOrNull()?.measures?.forEach { m ->
+                        allMeasures.add(m.copy(number = measureOffset++))
+                    }
+                }
+                renderer.close()
+                val thumbFile = saveThumbnail(thumbnailBitmap, scoreId)
+                val finalScore = Score(id = scoreId, title = title,
+                    parts = listOf(Part("P1", "Cello", "Vc.", measures = allMeasures.ifEmpty {
+                        listOf(Measure(1, elements = emptyList()))
+                    })))
+                updateScoreFromOmr(dbId, scoreId, dir, finalScore, "DONE")
+                if (thumbFile != null) {
+                    val entity = scoreDao.getScoreById(dbId)
+                    entity?.let { scoreDao.updateScore(it.copy(thumbnailPath = thumbFile.absolutePath)) }
+                }
+                Result.success(dbId)
+            } catch (e2: Exception) {
+                scoreDao.updateOmrResult(dbId, "FAILED", 0, 0, "C major", 4, 4)
+                Result.failure(e2)
+            }
+        }
     }
 
     suspend fun importMidi(uri: Uri): Result<Long> = withContext(Dispatchers.IO) {

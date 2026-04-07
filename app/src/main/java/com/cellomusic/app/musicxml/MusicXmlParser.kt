@@ -1,5 +1,6 @@
 package com.cellomusic.app.musicxml
 
+import android.util.Log
 import android.util.Xml
 import com.cellomusic.app.domain.model.*
 import org.xmlpull.v1.XmlPullParser
@@ -7,6 +8,8 @@ import org.xmlpull.v1.XmlPullParserException
 import java.io.File
 import java.io.InputStream
 import java.util.UUID
+
+private const val TAG = "MusicXmlParser"
 
 /**
  * Parses MusicXML files into the Score domain model using XmlPullParser
@@ -19,7 +22,11 @@ class MusicXmlParser {
     fun parse(inputStream: InputStream, defaultTitle: String = "Unknown"): Score {
         val parser = Xml.newPullParser()
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
-        parser.setInput(inputStream, null)
+        // Prevent the parser from fetching external DTD/entity URLs (blocks network on Android)
+        try {
+            parser.setFeature("http://xmlpull.org/v1/doc/features.html#process-docdecl", false)
+        } catch (_: XmlPullParserException) { /* not supported on this parser — ignore */ }
+        parser.setInput(inputStream, "UTF-8")
 
         var title = defaultTitle
         var composer: String? = null
@@ -76,7 +83,10 @@ class MusicXmlParser {
         )
     }
 
+    private data class MeasureResult(val measure: Measure, val finalDivisions: Int)
+
     private fun parsePart(parser: XmlPullParser, builder: PartBuilder) {
+        Log.d(TAG, "parsePart enter id=${builder.id}")
         val ns = null
         var currentTimeSignature: TimeSignature? = null
         var currentKeySignature: KeySignature? = null
@@ -85,24 +95,26 @@ class MusicXmlParser {
         var divisions = 1
 
         while (!(parser.eventType == XmlPullParser.END_TAG && parser.name == "part")) {
+            if (parser.eventType == XmlPullParser.END_DOCUMENT) break
             if (parser.eventType == XmlPullParser.START_TAG && parser.name == "measure") {
                 val measureNumber = parser.getAttributeValue(ns, "number")?.toIntOrNull() ?: 1
-                val measure = parseMeasure(
+                val result = parseMeasure(
                     parser, measureNumber, divisions,
                     currentTimeSignature, currentKeySignature, currentClef, currentTempo
                 )
 
-                // carry over state for next measure
-                measure.timeSignature?.let { currentTimeSignature = it }
-                measure.keySignature?.let { currentKeySignature = it }
-                measure.clef?.let { currentClef = it }
-                measure.tempo?.let { currentTempo = it }
-                measure.elements.filterIsInstance<Note>().firstOrNull()
+                // carry over state for next measure (including divisions!)
+                divisions = result.finalDivisions
+                result.measure.timeSignature?.let { currentTimeSignature = it }
+                result.measure.keySignature?.let { currentKeySignature = it }
+                result.measure.clef?.let { currentClef = it }
+                result.measure.tempo?.let { currentTempo = it }
 
-                builder.measures.add(measure)
+                builder.measures.add(result.measure)
             }
             parser.next()
         }
+        Log.d(TAG, "parsePart exit id=${builder.id} measures=${builder.measures.size}")
     }
 
     private fun parseMeasure(
@@ -113,7 +125,8 @@ class MusicXmlParser {
         inheritedKey: KeySignature?,
         inheritedClef: Clef?,
         inheritedTempo: TempoMark?
-    ): Measure {
+    ): MeasureResult {
+        Log.d(TAG, "parseMeasure enter #$number")
         var localDivisions = divisions
         var timeSignature: TimeSignature? = null
         var keySignature: KeySignature? = null
@@ -129,6 +142,7 @@ class MusicXmlParser {
         val openSlurs = mutableMapOf<Int, String>()
 
         while (!(parser.eventType == XmlPullParser.END_TAG && parser.name == "measure")) {
+            if (parser.eventType == XmlPullParser.END_DOCUMENT) break
             if (parser.eventType == XmlPullParser.START_TAG) {
                 when (parser.name) {
                     "divisions" -> localDivisions = parser.nextText().toIntOrNull() ?: 1
@@ -194,17 +208,20 @@ class MusicXmlParser {
             parser.next()
         }
 
-        return Measure(
-            number = number,
-            timeSignature = timeSignature,
-            keySignature = keySignature,
-            clef = clef,
-            tempo = tempo,
-            elements = elements,
-            directions = directions,
-            barlineLeft = barlineLeft,
-            barlineRight = barlineRight,
-            repeatInfo = repeatInfo
+        return MeasureResult(
+            measure = Measure(
+                number = number,
+                timeSignature = timeSignature,
+                keySignature = keySignature,
+                clef = clef,
+                tempo = tempo,
+                elements = elements,
+                directions = directions,
+                barlineLeft = barlineLeft,
+                barlineRight = barlineRight,
+                repeatInfo = repeatInfo
+            ),
+            finalDivisions = localDivisions
         )
     }
 
@@ -242,6 +259,7 @@ class MusicXmlParser {
         val slurActions = mutableListOf<Pair<String, String>>()
 
         while (!(parser.eventType == XmlPullParser.END_TAG && parser.name == "note")) {
+            if (parser.eventType == XmlPullParser.END_DOCUMENT) break
             if (parser.eventType == XmlPullParser.START_TAG) {
                 when (parser.name) {
                     "chord" -> isChord = true
@@ -349,9 +367,10 @@ class MusicXmlParser {
         var alter = Alter.NATURAL
 
         while (!(parser.eventType == XmlPullParser.END_TAG && parser.name == "pitch")) {
+            if (parser.eventType == XmlPullParser.END_DOCUMENT) break
             if (parser.eventType == XmlPullParser.START_TAG) {
                 when (parser.name) {
-                    "step" -> step = PitchStep.valueOf(parser.nextText())
+                    "step" -> step = runCatching { PitchStep.valueOf(parser.nextText().uppercase()) }.getOrDefault(PitchStep.C)
                     "octave" -> octave = parser.nextText().toIntOrNull() ?: 4
                     "alter" -> {
                         val v = parser.nextText().toFloatOrNull() ?: 0f
@@ -376,6 +395,7 @@ class MusicXmlParser {
         var isCut = parser.getAttributeValue(null, "symbol") == "cut"
 
         while (!(parser.eventType == XmlPullParser.END_TAG && parser.name == "time")) {
+            if (parser.eventType == XmlPullParser.END_DOCUMENT) break
             if (parser.eventType == XmlPullParser.START_TAG) {
                 when (parser.name) {
                     "beats" -> num = parser.nextText().toIntOrNull() ?: 4
@@ -390,6 +410,7 @@ class MusicXmlParser {
     private fun parseKeySignature(parser: XmlPullParser): KeySignature {
         var fifths = 0; var mode = KeyMode.MAJOR
         while (!(parser.eventType == XmlPullParser.END_TAG && parser.name == "key")) {
+            if (parser.eventType == XmlPullParser.END_DOCUMENT) break
             if (parser.eventType == XmlPullParser.START_TAG) {
                 when (parser.name) {
                     "fifths" -> fifths = parser.nextText().toIntOrNull() ?: 0
@@ -404,6 +425,7 @@ class MusicXmlParser {
     private fun parseClef(parser: XmlPullParser): Clef {
         var sign = "F"; var line: Int? = null; var octave = 0
         while (!(parser.eventType == XmlPullParser.END_TAG && parser.name == "clef")) {
+            if (parser.eventType == XmlPullParser.END_DOCUMENT) break
             if (parser.eventType == XmlPullParser.START_TAG) {
                 when (parser.name) {
                     "sign" -> sign = parser.nextText()
@@ -441,6 +463,7 @@ class MusicXmlParser {
         val techMarks = mutableListOf<TechnicalMark>()
 
         while (!(parser.eventType == XmlPullParser.END_TAG && parser.name == "notations")) {
+            if (parser.eventType == XmlPullParser.END_DOCUMENT) break
             if (parser.eventType == XmlPullParser.START_TAG) {
                 when (parser.name) {
                     "slur" -> {
@@ -475,6 +498,7 @@ class MusicXmlParser {
 
     private fun parseArticulations(parser: XmlPullParser, list: MutableList<Articulation>) {
         while (!(parser.eventType == XmlPullParser.END_TAG && parser.name == "articulations")) {
+            if (parser.eventType == XmlPullParser.END_DOCUMENT) break
             if (parser.eventType == XmlPullParser.START_TAG) {
                 when (parser.name) {
                     "staccato" -> list.add(Articulation.STACCATO)
@@ -502,6 +526,7 @@ class MusicXmlParser {
         val marks = mutableListOf<TechnicalMark>()
 
         while (!(parser.eventType == XmlPullParser.END_TAG && parser.name == "technical")) {
+            if (parser.eventType == XmlPullParser.END_DOCUMENT) break
             if (parser.eventType == XmlPullParser.START_TAG) {
                 when (parser.name) {
                     "up-bow" -> bowing = BowingMark.UP_BOW
@@ -528,6 +553,7 @@ class MusicXmlParser {
     private fun parseOrnamentElement(parser: XmlPullParser): Ornament? {
         var result: Ornament? = null
         while (!(parser.eventType == XmlPullParser.END_TAG && parser.name == "ornaments")) {
+            if (parser.eventType == XmlPullParser.END_DOCUMENT) break
             if (parser.eventType == XmlPullParser.START_TAG) {
                 when (parser.name) {
                     "trill-mark" -> result = Ornament.Trill()
@@ -556,6 +582,7 @@ class MusicXmlParser {
         var beatUnit = DurationType.QUARTER
 
         while (!(parser.eventType == XmlPullParser.END_TAG && parser.name == "direction")) {
+            if (parser.eventType == XmlPullParser.END_DOCUMENT) break
             if (parser.eventType == XmlPullParser.START_TAG) {
                 when (parser.name) {
                     "dynamics" -> dynamicLevel = parseDynamicFromNotations(parser)
@@ -570,6 +597,7 @@ class MusicXmlParser {
                     "rehearsal" -> rehearsal = parser.nextText()
                     "metronome" -> {
                         while (!(parser.eventType == XmlPullParser.END_TAG && parser.name == "metronome")) {
+                            if (parser.eventType == XmlPullParser.END_DOCUMENT) break
                             if (parser.eventType == XmlPullParser.START_TAG) {
                                 when (parser.name) {
                                     "beat-unit" -> beatUnit = parseDurationType(parser.nextText())
@@ -631,6 +659,7 @@ class MusicXmlParser {
         var result: DynamicLevel? = null
         val endTag = parser.name
         while (!(parser.eventType == XmlPullParser.END_TAG && parser.name == endTag)) {
+            if (parser.eventType == XmlPullParser.END_DOCUMENT) break
             if (parser.eventType == XmlPullParser.START_TAG) {
                 result = when (parser.name) {
                     "pppp" -> DynamicLevel.PPPP
@@ -660,6 +689,7 @@ class MusicXmlParser {
         var repeatInfo: RepeatInfo? = null
 
         while (!(parser.eventType == XmlPullParser.END_TAG && parser.name == "barline")) {
+            if (parser.eventType == XmlPullParser.END_DOCUMENT) break
             if (parser.eventType == XmlPullParser.START_TAG) {
                 when (parser.name) {
                     "bar-style" -> {
@@ -697,6 +727,7 @@ class MusicXmlParser {
     private fun parseTimeModification(parser: XmlPullParser): Triple<Int, Int, DurationType?> {
         var actual = 1; var normal = 1; var normalType: DurationType? = null
         while (!(parser.eventType == XmlPullParser.END_TAG && parser.name == "time-modification")) {
+            if (parser.eventType == XmlPullParser.END_DOCUMENT) break
             if (parser.eventType == XmlPullParser.START_TAG) {
                 when (parser.name) {
                     "actual-notes" -> actual = parser.nextText().toIntOrNull() ?: 1
@@ -743,8 +774,13 @@ class MusicXmlParser {
     private fun parseTaggedInt(parser: XmlPullParser, tag: String): Int {
         var result = 0
         while (!(parser.eventType == XmlPullParser.END_TAG && parser.name == tag)) {
+            if (parser.eventType == XmlPullParser.END_DOCUMENT) break
             if (parser.eventType == XmlPullParser.START_TAG && parser.name == tag) {
                 result = parser.nextText().toIntOrNull() ?: 0
+                // nextText() leaves parser at END_TAG for `tag`; break so we don't
+                // advance past it with the parser.next() below (which would cause the
+                // while condition to never fire and consume the rest of the document).
+                break
             }
             parser.next()
         }
@@ -753,6 +789,7 @@ class MusicXmlParser {
 
     private fun skipElement(parser: XmlPullParser, tag: String) {
         while (!(parser.eventType == XmlPullParser.END_TAG && parser.name == tag)) {
+            if (parser.eventType == XmlPullParser.END_DOCUMENT) break
             parser.next()
         }
     }

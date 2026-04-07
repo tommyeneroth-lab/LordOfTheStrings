@@ -62,6 +62,32 @@
                 app:strokeColor="@color/white_70" />
 
             <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_fingering"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Fingering: OFF"
+                android:textSize="12sp"
+                android:layout_marginEnd="4dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="10dp"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:textColor="@color/white"
+                app:strokeColor="@color/white_70" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_record"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="⏺ Record"
+                android:textSize="13sp"
+                android:layout_marginEnd="4dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="10dp"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:textColor="@color/white"
+                app:strokeColor="@color/white_70" />
+
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_export"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

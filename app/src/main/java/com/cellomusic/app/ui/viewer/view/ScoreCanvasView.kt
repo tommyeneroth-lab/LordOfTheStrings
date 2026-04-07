@@ -136,6 +136,10 @@ class ScoreCanvasView @JvmOverloads constructor(
     private var selectedMeasureNum = -1
     private var selectedNoteIdx = -1
 
+    // Fingering visibility toggle
+    var fingeringsVisible: Boolean = false
+        set(value) { field = value; invalidate() }
+
     // Score data
     private var score: Score? = null
     private var measures: List<Measure> = emptyList()
@@ -631,8 +635,8 @@ class ScoreCanvasView @JvmOverloads constructor(
             drawTechnicalMark(canvas, mark, x, noteY, staffY)
         }
 
-        // Draw fingering
-        note.fingering?.let { drawFingering(canvas, it, x, noteY, staffY) }
+        // Draw fingering (only when visible flag is set)
+        if (fingeringsVisible) note.fingering?.let { drawFingering(canvas, it, x, noteY, staffY) }
     }
 
     private fun drawNoteHead(canvas: Canvas, type: DurationType, x: Float, y: Float, open: Boolean) {

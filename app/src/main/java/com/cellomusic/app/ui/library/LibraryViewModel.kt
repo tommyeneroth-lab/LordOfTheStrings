@@ -54,6 +54,22 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    fun importPdfViaServer(uri: Uri, serverUrl: String) = viewModelScope.launch {
+        _omrProgress.value = "Sending to OMR server…"
+        val result = repository.importPdfViaServer(uri, serverUrl) { msg ->
+            _omrProgress.value = msg
+            android.util.Log.d("OMR", "Progress: $msg")
+        }
+        _omrProgress.value = null
+        _importStatus.value = result.fold(
+            onSuccess = { "PDF imported via server" },
+            onFailure = { e ->
+                android.util.Log.e("OMR", "importPdfViaServer failed", e)
+                "PDF import failed: ${e.message}"
+            }
+        )
+    }
+
     fun importJpeg(uri: Uri) = viewModelScope.launch {
         _omrProgress.value = "Starting image import…"
         val result = repository.importJpeg(uri) { msg -> _omrProgress.value = msg }

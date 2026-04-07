@@ -27,7 +27,7 @@ class MainActivity : AppCompatActivity() {
         navController.addOnDestinationChangedListener { _, destination, _ ->
             when (destination.id) {
                 R.id.libraryFragment, R.id.tunerFragment, R.id.metronomeFragment,
-                R.id.droneFragment, R.id.practiceJournalFragment, R.id.decibelMeterFragment -> {
+                R.id.droneFragment, R.id.practiceJournalFragment -> {
                     binding.bottomNavigation.visibility = android.view.View.VISIBLE
                 }
                 else -> {
