@@ -4,6 +4,7 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.cellomusic.app.audio.RecordingManager
 import com.cellomusic.app.data.db.entity.ScoreEntity
 import com.cellomusic.app.data.repository.ScoreRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -97,6 +98,51 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             onSuccess = { "MIDI imported successfully" },
             onFailure = { "MIDI import failed: ${it.message}" }
         )
+    }
+
+    // ── Microphone recording → transcription ──────────────────────────────────
+    private var recordingManager: RecordingManager? = null
+
+    enum class RecordingState { IDLE, RECORDING }
+
+    private val _recordingState = MutableStateFlow(RecordingState.IDLE)
+    val recordingState: StateFlow<RecordingState> = _recordingState
+
+    fun startRecording() {
+        if (_recordingState.value == RecordingState.RECORDING) return
+        val mgr = RecordingManager(getApplication())
+        recordingManager = mgr
+        mgr.start("Recording")
+        _recordingState.value = RecordingState.RECORDING
+    }
+
+    /** Stop recording and immediately transcribe the audio into a new score. */
+    fun stopRecordingAndTranscribe() = viewModelScope.launch {
+        val mgr = recordingManager ?: return@launch
+        recordingManager = null
+        _recordingState.value = RecordingState.IDLE
+        val uri = mgr.stop() ?: run {
+            _importStatus.value = "Recording failed — no audio saved"
+            return@launch
+        }
+        _omrProgress.value = "Transcribing recording…"
+        val result = repository.importMp3(uri) { msg -> _omrProgress.value = msg }
+        _omrProgress.value = null
+        _importStatus.value = result.fold(
+            onSuccess = { "Recording transcribed successfully" },
+            onFailure = { "Transcription failed: ${it.message}" }
+        )
+    }
+
+    fun cancelRecording() {
+        recordingManager?.cancel()
+        recordingManager = null
+        _recordingState.value = RecordingState.IDLE
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        recordingManager?.cancel()
     }
 
     fun deleteScore(entity: ScoreEntity) = viewModelScope.launch {

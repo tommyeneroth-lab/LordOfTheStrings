@@ -117,6 +117,16 @@ class LibraryFragment : Fragment() {
         binding.fabImport.setOnClickListener {
             showImportDialog()
         }
+        binding.fabRecord.setOnClickListener {
+            when (viewModel.recordingState.value) {
+                LibraryViewModel.RecordingState.IDLE -> {
+                    viewModel.startRecording()
+                }
+                LibraryViewModel.RecordingState.RECORDING -> {
+                    viewModel.stopRecordingAndTranscribe()
+                }
+            }
+        }
     }
 
     private fun showImportDialog() {
@@ -159,10 +169,12 @@ class LibraryFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewModel.omrProgress.collect { progress ->
                 if (progress != null) {
-                    binding.omrProgressOverlay.visibility = android.view.View.VISIBLE
+                    binding.omrProgressOverlay.visibility = View.VISIBLE
+                    binding.tvOmrTitle.text = "Transcribing Audio…"
                     binding.tvOmrStep.text = progress
-                } else {
-                    binding.omrProgressOverlay.visibility = android.view.View.GONE
+                } else if (viewModel.recordingState.value == LibraryViewModel.RecordingState.IDLE) {
+                    binding.omrProgressOverlay.visibility = View.GONE
+                    binding.tvOmrTitle.text = "Recognising Score…"
                 }
             }
         }
@@ -171,6 +183,29 @@ class LibraryFragment : Fragment() {
             viewModel.importStatus.collect { status ->
                 status?.let {
                     android.widget.Toast.makeText(requireContext(), it, android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.recordingState.collect { state ->
+                when (state) {
+                    LibraryViewModel.RecordingState.RECORDING -> {
+                        binding.fabRecord.backgroundTintList =
+                            android.content.res.ColorStateList.valueOf(
+                                android.graphics.Color.parseColor("#FF5555"))
+                        binding.fabRecord.setImageResource(android.R.drawable.ic_media_pause)
+                        binding.tvOmrTitle.text = "Recording… tap ⏹ to stop"
+                        binding.omrProgressOverlay.visibility = View.VISIBLE
+                        binding.tvOmrStep.text = ""
+                    }
+                    LibraryViewModel.RecordingState.IDLE -> {
+                        binding.fabRecord.backgroundTintList =
+                            android.content.res.ColorStateList.valueOf(
+                                android.graphics.Color.parseColor("#CC3333"))
+                        binding.fabRecord.setImageResource(android.R.drawable.presence_audio_online)
+                        // overlay is hidden by omrProgress observer when progress becomes null
+                    }
                 }
             }
         }
@@ -246,6 +281,7 @@ class LibraryFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        viewModel.cancelRecording()
         _binding = null
     }
 }

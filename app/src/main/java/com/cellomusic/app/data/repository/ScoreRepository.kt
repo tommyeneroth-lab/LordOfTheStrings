@@ -18,6 +18,7 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
+import kotlin.math.roundToInt
 
 class ScoreRepository(private val context: Context) {
 
@@ -240,74 +241,133 @@ class ScoreRepository(private val context: Context) {
     private data class TrackedNote(val pitch: Pitch, val startMs: Long, val durationMs: Long)
 
     /**
-     * Simple HPS-based pitch tracker: process 50ms frames with 25ms hop,
-     * detect dominant pitch via Harmonic Product Spectrum, group consecutive
-     * frames with the same pitch into notes.
+     * Pitch tracker — three-stage pipeline:
+     *
+     * 1. Frame analysis: 100 ms windows / 25 ms hop.  Larger windows give
+     *    better frequency resolution for the cello's low fundamentals.
+     * 2. Median smoothing (window = 7 frames ≈ 175 ms): eliminates one-frame
+     *    spikes caused by bow noise, vibrato or transients.
+     * 3. Run-length grouping: consecutive frames with the same MIDI value
+     *    become one note; runs shorter than MIN_FRAMES (≈ 125 ms) are
+     *    discarded as artefacts.
+     *
+     * This replaces the old frame-by-frame "did it change?" logic which
+     * produced hundreds of tiny random-pitch segments.
      */
     private fun pitchTrack(
         samples: FloatArray,
         sampleRate: Int,
         onProgress: ((String) -> Unit)?
     ): List<TrackedNote> {
-        val frameSize = (sampleRate * 0.05).toInt().coerceAtLeast(512).let {
-            // Round up to next power of 2
-            var p = 1; while (p < it) p = p shl 1; p
+
+        // 100 ms frame, rounded up to next power of 2 (≥ 4096 at 44 kHz)
+        val frameSize = run {
+            var p = 1
+            val target = (sampleRate * 0.10).toInt().coerceAtLeast(2048)
+            while (p < target) p = p shl 1
+            p
         }
-        val hopSize  = frameSize / 2
-        val notes    = mutableListOf<TrackedNote>()
-        var prevMidi = -1
-        var noteStart= 0L
-        val totalFrames = (samples.size - frameSize) / hopSize
+        val hopSize = (sampleRate * 0.025).toInt()   // 25 ms hop
 
-        var frameIdx = 0
+        // ── Stage 1: raw frame-level MIDI estimates ───────────────────────────
+        val frameMidi = mutableListOf<Int>()
         var pos = 0
+        var frameIdx = 0
         while (pos + frameSize <= samples.size) {
-            val frame = FloatArray(frameSize) { i -> samples[pos + i] }
-            val midi  = hpsPitch(frame, sampleRate)
-            val ms    = (pos.toLong() * 1000L / sampleRate)
-
-            if (midi != prevMidi) {
-                if (prevMidi > 0 && ms - noteStart > 80L) {
-                    notes.add(TrackedNote(midiToPitch(prevMidi), noteStart, ms - noteStart))
-                }
-                prevMidi  = midi
-                noteStart = ms
-            }
-            if (frameIdx % 20 == 0) {
+            frameMidi += hpsPitch(FloatArray(frameSize) { samples[pos + it] }, sampleRate)
+            if (frameIdx % 40 == 0) {
+                val ms = pos.toLong() * 1000L / sampleRate
                 onProgress?.invoke("Analysing %.1f s…".format(ms / 1000f))
             }
             pos += hopSize
             frameIdx++
         }
+        if (frameMidi.isEmpty()) return emptyList()
+
+        // ── Stage 2: median filter to kill single-frame jitter ────────────────
+        val smoothed = medianFilter(frameMidi, windowSize = 7)
+
+        // ── Stage 3: run-length grouping ─────────────────────────────────────
+        // A "note" is a run of ≥ MIN_FRAMES frames with the same non-zero MIDI.
+        val MIN_FRAMES = 5          // ≈ 125 ms — shorter artefacts discarded
+        val notes = mutableListOf<TrackedNote>()
+        var runStart = 0
+        var runMidi  = smoothed[0]
+
+        fun commitRun(endIdx: Int) {
+            val length = endIdx - runStart
+            if (runMidi > 0 && length >= MIN_FRAMES) {
+                val startMs = runStart.toLong() * hopSize * 1000L / sampleRate
+                val endMs   = endIdx.toLong()   * hopSize * 1000L / sampleRate
+                notes += TrackedNote(midiToPitch(runMidi), startMs, endMs - startMs)
+            }
+        }
+
+        for (i in 1..smoothed.size) {
+            val cur = if (i < smoothed.size) smoothed[i] else Int.MIN_VALUE
+            if (cur != runMidi) {
+                commitRun(i)
+                runStart = i
+                runMidi  = cur
+            }
+        }
+
         return notes
     }
 
-    /** Harmonic Product Spectrum — returns MIDI note number (0 = silence). */
+    /** Applies a sliding-window median filter to an integer list. */
+    private fun medianFilter(values: List<Int>, windowSize: Int): List<Int> {
+        val half = windowSize / 2
+        return values.indices.map { i ->
+            val lo  = maxOf(0, i - half)
+            val hi  = minOf(values.size - 1, i + half)
+            val win = values.subList(lo, hi + 1).sorted()
+            win[win.size / 2]
+        }
+    }
+
+    /**
+     * Harmonic Product Spectrum pitch estimator.
+     *
+     * Improvements over the previous version:
+     * - Higher silence threshold (0.015 RMS) to reject background noise.
+     * - HPS order 5 (harmonics ×1..×5) — more robust for cello fundamentals
+     *   which are often weaker than the 2nd/3rd harmonic.
+     * - Parabolic interpolation around the HPS peak for sub-bin accuracy,
+     *   reducing octave-rounding errors on low notes.
+     *
+     * Returns MIDI note number, or 0 for silence/noise.
+     */
     private fun hpsPitch(frame: FloatArray, sampleRate: Int): Int {
         val n = frame.size
-        // Apply Hann window
-        val windowed = FloatArray(n) { i -> frame[i] * (0.5f - 0.5f * kotlin.math.cos(2.0 * Math.PI * i / n)).toFloat() }
 
-        // FFT using JTransforms if available, else simple DFT for small windows
-        val re = DoubleArray(n) { windowed[it].toDouble() }
-        val im = DoubleArray(n) { 0.0 }
-        // Cooley-Tukey in-place — compact version
+        // RMS silence gate — reject quiet frames before any FFT work
+        var sumSq = 0.0
+        for (s in frame) sumSq += s * s
+        val rms = kotlin.math.sqrt(sumSq / n)
+        if (rms < 0.015) return 0
+
+        // Hann window
+        val re = DoubleArray(n) { i -> frame[i] * (0.5 - 0.5 * kotlin.math.cos(2.0 * Math.PI * i / n)) }
+        val im = DoubleArray(n)
+
+        // Radix-2 DIF FFT (bit-reversal at end)
         var h = n
         while (h > 1) {
             h /= 2
             for (j in 0 until h) {
-                val w = -2.0 * Math.PI * j / (h * 2)
-                val wr = kotlin.math.cos(w); val wi = kotlin.math.sin(w)
+                val w  = -2.0 * Math.PI * j / (h * 2)
+                val wr = kotlin.math.cos(w)
+                val wi = kotlin.math.sin(w)
                 for (k in j until n step h * 2) {
                     val k2 = k + h
                     val tr = re[k2] * wr - im[k2] * wi
                     val ti = re[k2] * wi + im[k2] * wr
-                    re[k2] = re[k] - tr; im[k2] = im[k] - ti
-                    re[k]  = re[k] + tr; im[k]  = im[k] + ti
+                    re[k2] = re[k] - tr;  im[k2] = im[k] - ti
+                    re[k]  = re[k] + tr;  im[k]  = im[k] + ti
                 }
             }
         }
-        // Bit-reversal permutation
         var j2 = 0
         for (i2 in 1 until n) {
             var bit = n shr 1
@@ -319,32 +379,42 @@ class ScoreRepository(private val context: Context) {
             }
         }
 
-        val mag = DoubleArray(n / 2) { i -> kotlin.math.sqrt(re[i] * re[i] + im[i] * im[i]) }
+        val half = n / 2
+        val mag  = DoubleArray(half) { i -> kotlin.math.sqrt(re[i] * re[i] + im[i] * im[i]) }
 
-        // HPS: multiply spectrum with downsampled versions
+        // HPS order 5: product of mag, mag[2i], mag[3i], mag[4i], mag[5i]
         val hps = mag.copyOf()
-        for (d in 2..4) {
+        for (d in 2..5) {
             for (i in hps.indices) {
                 val src = i * d
-                if (src < mag.size) hps[i] *= mag[src]
+                if (src < half) hps[i] *= mag[src] else hps[i] = 0.0
             }
         }
 
-        // Find peak in cello range: C2(65Hz)–A5(880Hz)
-        val minBin = (65.0 * n / sampleRate).toInt().coerceAtLeast(1)
-        val maxBin = (880.0 * n / sampleRate).toInt().coerceAtMost(n / 2 - 1)
+        // Search only in cello range: C2 ≈ 65 Hz  to  C6 ≈ 1047 Hz
+        val minBin = (65.0   * n / sampleRate).toInt().coerceAtLeast(1)
+        val maxBin = (1050.0 * n / sampleRate).toInt().coerceAtMost(half - 2)
+
         var peakBin = minBin
         var peakVal = 0.0
         for (i in minBin..maxBin) {
             if (hps[i] > peakVal) { peakVal = hps[i]; peakBin = i }
         }
+        if (peakVal < 1e-10) return 0
 
-        // Silence threshold: ignore very quiet frames
-        val rms = kotlin.math.sqrt(frame.map { it * it.toDouble() }.average())
-        if (rms < 0.005 || peakVal < 1e-6) return 0
+        // Parabolic interpolation for fractional bin accuracy
+        val freq = if (peakBin in 1 until half - 1) {
+            val a = hps[peakBin - 1]
+            val b = hps[peakBin]
+            val c = hps[peakBin + 1]
+            val denom = a - 2 * b + c
+            val frac = if (kotlin.math.abs(denom) > 1e-12) 0.5 * (a - c) / denom else 0.0
+            (peakBin + frac) * sampleRate / n
+        } else {
+            peakBin.toDouble() * sampleRate / n
+        }
 
-        val freq = peakBin.toDouble() * sampleRate / n
-        return (69 + 12 * kotlin.math.log2(freq / 440.0)).toInt().coerceIn(24, 96)
+        return (69 + 12 * kotlin.math.log2(freq / 440.0)).roundToInt().coerceIn(24, 96)
     }
 
     private fun midiToPitch(midi: Int): Pitch {

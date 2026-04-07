@@ -2,10 +2,8 @@ package com.cellomusic.app.ui.viewer
 
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.cellomusic.app.audio.RecordingManager
 import com.cellomusic.app.audio.playback.ScorePlayer
 import com.cellomusic.app.data.repository.ScoreRepository
 import com.cellomusic.app.domain.CelloFingeringAdvisor
@@ -93,34 +91,6 @@ class ScoreViewerViewModel : ViewModel() {
         }
     }
 
-    // ── Recording ─────────────────────────────────────────────────────────────
-    private var recordingManager: RecordingManager? = null
-
-    enum class RecordingState { IDLE, RECORDING }
-
-    private val _recordingState = MutableStateFlow(RecordingState.IDLE)
-    val recordingState: StateFlow<RecordingState> = _recordingState
-
-    private val _recordingUri = MutableStateFlow<Uri?>(null)
-    val recordingUri: StateFlow<Uri?> = _recordingUri
-
-    fun startRecording(context: Context) {
-        if (_recordingState.value == RecordingState.RECORDING) return
-        val mgr = RecordingManager(context)
-        recordingManager = mgr
-        mgr.start(_score.value?.title ?: "Recording")
-        _recordingState.value = RecordingState.RECORDING
-    }
-
-    fun stopRecording() {
-        val uri = recordingManager?.stop()
-        recordingManager = null
-        _recordingState.value = RecordingState.IDLE
-        _recordingUri.value = uri
-    }
-
-    fun clearRecordingUri() { _recordingUri.value = null }
-
     // ── Transpose ─────────────────────────────────────────────────────────────
     private val _transposeSteps = MutableStateFlow(0)
     val transposeSteps: StateFlow<Int> = _transposeSteps
@@ -128,15 +98,35 @@ class ScoreViewerViewModel : ViewModel() {
     private val _exportIntent = MutableStateFlow<Intent?>(null)
     val exportIntent: StateFlow<Intent?> = _exportIntent
 
+    /** Whether the currently selected element is a Note, Rest, or nothing. */
+    enum class SelectedElementType { NOTE, REST }
+
     private val _selectedNotePos = MutableStateFlow<Pair<Int, Int>?>(null)
     val selectedNotePos: StateFlow<Pair<Int, Int>?> = _selectedNotePos
 
+    private val _selectedElementType = MutableStateFlow<SelectedElementType?>(null)
+    val selectedElementType: StateFlow<SelectedElementType?> = _selectedElementType
+
     fun selectNote(measureNum: Int, noteIdx: Int) {
         val cur = _selectedNotePos.value
-        _selectedNotePos.value = if (cur?.first == measureNum && cur.second == noteIdx) null
-                                 else Pair(measureNum, noteIdx)
+        if (cur?.first == measureNum && cur.second == noteIdx) {
+            // Tap same element again → deselect
+            _selectedNotePos.value = null
+            _selectedElementType.value = null
+        } else {
+            _selectedNotePos.value = Pair(measureNum, noteIdx)
+            val elem = _score.value?.parts?.firstOrNull()
+                ?.measures?.firstOrNull { it.number == measureNum }
+                ?.elements?.getOrNull(noteIdx)
+            _selectedElementType.value = when (elem) {
+                is Note -> SelectedElementType.NOTE
+                is Rest -> SelectedElementType.REST
+                else    -> null
+            }
+        }
     }
 
+    /** Applies [transform] only when the selected element is a Note. */
     private fun modifySelectedNote(transform: (Note) -> Note) {
         val (measureNum, noteIdx) = _selectedNotePos.value ?: return
         val score = _score.value ?: return
@@ -154,6 +144,35 @@ class ScoreViewerViewModel : ViewModel() {
         _score.value?.let { player?.loadScore(it) }
     }
 
+    /**
+     * Changes the duration of the selected element (works for both Note and Rest).
+     * [nextType] maps the current DurationType to the desired one, or null to leave unchanged.
+     */
+    private fun changeDuration(nextType: (DurationType) -> DurationType?) {
+        val (measureNum, noteIdx) = _selectedNotePos.value ?: return
+        val score = _score.value ?: return
+        val newParts = score.parts.map { part ->
+            part.copy(measures = part.measures.map { measure ->
+                if (measure.number != measureNum) return@map measure
+                val elements = measure.elements.toMutableList()
+                when (val elem = elements.getOrNull(noteIdx)) {
+                    is Note -> {
+                        val nt = nextType(elem.duration.type) ?: return@map measure
+                        elements[noteIdx] = elem.copy(duration = NoteDuration(nt))
+                    }
+                    is Rest -> {
+                        val nt = nextType(elem.duration.type) ?: return@map measure
+                        elements[noteIdx] = elem.copy(duration = NoteDuration(nt))
+                    }
+                    else -> return@map measure
+                }
+                measure.copy(elements = elements)
+            })
+        }
+        _score.value = score.copy(parts = newParts)
+        _score.value?.let { player?.loadScore(it) }
+    }
+
     fun pitchUp() = modifySelectedNote { note ->
         val midi = (note.pitch.toMidiNote() + 1).coerceIn(24, 96)
         note.copy(pitch = midiToPitch(midi))
@@ -164,31 +183,30 @@ class ScoreViewerViewModel : ViewModel() {
         note.copy(pitch = midiToPitch(midi))
     }
 
-    fun durationShorter() = modifySelectedNote { note ->
-        val shorter = when (note.duration.type) {
-            DurationType.WHOLE -> DurationType.HALF
-            DurationType.HALF -> DurationType.QUARTER
-            DurationType.QUARTER -> DurationType.EIGHTH
-            DurationType.EIGHTH -> DurationType.SIXTEENTH
-            DurationType.SIXTEENTH -> DurationType.THIRTY_SECOND
-            else -> null
-        } ?: return@modifySelectedNote note
-        note.copy(duration = NoteDuration(shorter))
+    fun durationShorter() = changeDuration { type ->
+        when (type) {
+            DurationType.WHOLE         -> DurationType.HALF
+            DurationType.HALF          -> DurationType.QUARTER
+            DurationType.QUARTER       -> DurationType.EIGHTH
+            DurationType.EIGHTH        -> DurationType.SIXTEENTH
+            DurationType.SIXTEENTH     -> DurationType.THIRTY_SECOND
+            else                       -> null
+        }
     }
 
-    fun durationLonger() = modifySelectedNote { note ->
-        val longer = when (note.duration.type) {
+    fun durationLonger() = changeDuration { type ->
+        when (type) {
             DurationType.THIRTY_SECOND -> DurationType.SIXTEENTH
-            DurationType.SIXTEENTH -> DurationType.EIGHTH
-            DurationType.EIGHTH -> DurationType.QUARTER
-            DurationType.QUARTER -> DurationType.HALF
-            DurationType.HALF -> DurationType.WHOLE
-            else -> null
-        } ?: return@modifySelectedNote note
-        note.copy(duration = NoteDuration(longer))
+            DurationType.SIXTEENTH     -> DurationType.EIGHTH
+            DurationType.EIGHTH        -> DurationType.QUARTER
+            DurationType.QUARTER       -> DurationType.HALF
+            DurationType.HALF          -> DurationType.WHOLE
+            else                       -> null
+        }
     }
 
-    fun deleteNote() {
+    /** Deletes the selected element (Note or Rest) from its measure. */
+    fun deleteElement() {
         val (measureNum, noteIdx) = _selectedNotePos.value ?: return
         val score = _score.value ?: return
         val newParts = score.parts.map { part ->
@@ -202,8 +220,12 @@ class ScoreViewerViewModel : ViewModel() {
         }
         _score.value = score.copy(parts = newParts)
         _selectedNotePos.value = null
+        _selectedElementType.value = null
         _score.value?.let { player?.loadScore(it) }
     }
+
+    // Keep old name as alias so nothing else breaks
+    fun deleteNote() = deleteElement()
 
     fun saveScore(context: Context) = viewModelScope.launch {
         val s = _score.value ?: return@launch
@@ -262,6 +284,5 @@ class ScoreViewerViewModel : ViewModel() {
     override fun onCleared() {
         super.onCleared()
         player?.stop()
-        recordingManager?.cancel()
     }
 }

@@ -114,20 +114,12 @@ class ScoreViewerFragment : Fragment() {
         }
         // Fingering toggle
         binding.btnFingering.setOnClickListener { viewModel.toggleFingerings() }
-        // Recording toggle
-        binding.btnRecord.setOnClickListener {
-            if (viewModel.recordingState.value == ScoreViewerViewModel.RecordingState.RECORDING) {
-                viewModel.stopRecording()
-            } else {
-                viewModel.startRecording(requireContext())
-            }
-        }
-        // Note edit toolbar (shown when a note is selected)
+        // Note/Rest edit toolbar (shown when any element is selected)
         binding.btnPitchUp.setOnClickListener { viewModel.pitchUp() }
         binding.btnPitchDown.setOnClickListener { viewModel.pitchDown() }
         binding.btnDurShorter.setOnClickListener { viewModel.durationShorter() }
         binding.btnDurLonger.setOnClickListener { viewModel.durationLonger() }
-        binding.btnDeleteNote.setOnClickListener { viewModel.deleteNote() }
+        binding.btnDeleteNote.setOnClickListener { viewModel.deleteElement() }
     }
 
     private fun showExportDialog() {
@@ -195,32 +187,19 @@ class ScoreViewerFragment : Fragment() {
             }
         }
 
+        // Show pitch buttons only when a Note is selected (not a Rest)
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.selectedElementType.collect { type ->
+                val isNote = type == ScoreViewerViewModel.SelectedElementType.NOTE
+                binding.btnPitchUp.visibility   = if (isNote) View.VISIBLE else View.GONE
+                binding.btnPitchDown.visibility = if (isNote) View.VISIBLE else View.GONE
+            }
+        }
+
         viewLifecycleOwner.lifecycleScope.launch {
             viewModel.fingeringsVisible.collect { visible ->
                 binding.scoreCanvas.fingeringsVisible = visible
-                binding.btnFingering.text = if (visible) "Fingering: ON" else "Fingering: OFF"
-            }
-        }
-
-        viewLifecycleOwner.lifecycleScope.launch {
-            viewModel.recordingState.collect { state ->
-                binding.btnRecord.text = when (state) {
-                    ScoreViewerViewModel.RecordingState.RECORDING -> "⏹ Stop Rec"
-                    ScoreViewerViewModel.RecordingState.IDLE -> "⏺ Record"
-                }
-            }
-        }
-
-        viewLifecycleOwner.lifecycleScope.launch {
-            viewModel.recordingUri.collect { uri ->
-                uri ?: return@collect
-                val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                    type = "audio/mp4"
-                    putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                startActivity(android.content.Intent.createChooser(shareIntent, "Share recording"))
-                viewModel.clearRecordingUri()
+                binding.btnFingering.text = if (visible) "1-2-3 ✓" else "1-2-3"
             }
         }
     }

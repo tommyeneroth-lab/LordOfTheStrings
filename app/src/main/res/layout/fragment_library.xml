@@ -40,6 +40,19 @@
         android:textColor="@color/library_subtext"
         android:visibility="gone" />
 
+    <!-- Record FAB — sits above the import FAB -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fab_record"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="88dp"
+        android:backgroundTint="#CC3333"
+        android:contentDescription="Record audio"
+        app:tint="@color/white"
+        app:srcCompat="@android:drawable/presence_audio_online" />
+
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/fab_import"
         android:layout_width="wrap_content"
