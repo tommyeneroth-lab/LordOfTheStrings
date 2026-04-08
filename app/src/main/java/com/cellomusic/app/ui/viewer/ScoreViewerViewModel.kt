@@ -205,6 +205,95 @@ class ScoreViewerViewModel : ViewModel() {
         }
     }
 
+    /**
+     * Changes the clef for the measure containing the selected element.
+     * Converts note pitches so that every note stays on the SAME staff line/space
+     * it was on before — i.e. the visual position is preserved and only the
+     * sounding pitch changes.  This lets the user correct a wrong OMR clef.
+     */
+    fun changeClef(clefType: ClefType) {
+        val (measureNum, _) = _selectedNotePos.value ?: return
+        val score = _score.value ?: return
+        val firstPart = score.parts.firstOrNull() ?: return
+        val measures = firstPart.measures
+
+        // Determine the effective (old) clef for this measure before the change
+        var oldClefType = ClefType.BASS
+        for (m in measures) {
+            if (m.number >= measureNum) break
+            if (m.clef != null) oldClefType = m.clef.type
+        }
+        val existingClef = measures.firstOrNull { it.number == measureNum }?.clef
+        if (existingClef != null) oldClefType = existingClef.type
+
+        if (oldClefType == clefType) return
+
+        // Find the last affected measure (until the next explicit clef change)
+        var affectedEnd = Int.MAX_VALUE
+        var seenTarget = false
+        for (m in measures) {
+            if (m.number == measureNum) { seenTarget = true; continue }
+            if (seenTarget && m.clef != null) { affectedEnd = m.number; break }
+        }
+
+        val newParts = score.parts.map { part ->
+            part.copy(measures = part.measures.map { measure ->
+                if (measure.number < measureNum || measure.number >= affectedEnd) return@map measure
+                val converted = measure.elements.map { elem ->
+                    if (elem is Note) {
+                        val pos = pitchToStaffPos(elem.pitch, oldClefType)
+                        val newMidi = staffPosToMidi(pos, clefType).coerceIn(24, 96)
+                        elem.copy(pitch = midiToPitch(newMidi), fingering = null)
+                    } else elem
+                }
+                measure.copy(
+                    elements = converted,
+                    clef = if (measure.number == measureNum) Clef(clefType) else measure.clef
+                )
+            })
+        }
+        _score.value = score.copy(parts = newParts)
+        _score.value?.let { player?.loadScore(it) }
+    }
+
+    // ── Clef conversion helpers ───────────────────────────────────────────────
+
+    /** Diatonic step number for a MIDI note (C0 = 0, D0 = 1, …). */
+    private fun noteToStep(midi: Int): Int {
+        val dia = when (midi % 12) {
+            0, 1 -> 0; 2, 3 -> 1; 4 -> 2; 5, 6 -> 3; 7, 8 -> 4; 9, 10 -> 5; else -> 6
+        }
+        return (midi / 12) * 7 + dia
+    }
+
+    /**
+     * Staff position of [pitch] in [clef].
+     * 0 = top staff line, positive = downward (matches ScoreCanvasView convention).
+     */
+    private fun pitchToStaffPos(pitch: Pitch, clef: ClefType): Int {
+        val step = noteToStep(pitch.toMidiNote())
+        return when (clef) {
+            ClefType.BASS   -> 33 - step   // A3 (step 33) at position 0
+            ClefType.TENOR  -> 41 - step   // C4 (step 35) at position 6  →  35+6=41
+            ClefType.TREBLE -> 45 - step   // E4 (step 37) at position 8  →  37+8=45
+            else            -> 33 - step
+        }
+    }
+
+    /** MIDI note that sits at staff [pos] (integer staff position) in [clef]. */
+    private fun staffPosToMidi(pos: Int, clef: ClefType): Int {
+        val step = when (clef) {
+            ClefType.BASS   -> 33 - pos
+            ClefType.TENOR  -> 41 - pos
+            ClefType.TREBLE -> 45 - pos
+            else            -> 33 - pos
+        }
+        val octave = Math.floorDiv(step, 7)
+        val dia    = Math.floorMod(step, 7)
+        val chromatic = intArrayOf(0, 2, 4, 5, 7, 9, 11)
+        return octave * 12 + chromatic[dia]
+    }
+
     /** Deletes the selected element (Note or Rest) from its measure. */
     fun deleteElement() {
         val (measureNum, noteIdx) = _selectedNotePos.value ?: return
@@ -270,7 +359,7 @@ class ScoreViewerViewModel : ViewModel() {
             val intent = when (format) {
                 "midi"     -> exporter.exportMidi(score, _transposeSteps.value)
                 "musicxml" -> exporter.exportMusicXml(score)
-                "pdf"      -> exporter.exportPdf(score)
+                "pdf"      -> exporter.exportPdf(score, _fingeringsVisible.value)
                 else       -> return@launch
             }
             _exportIntent.value = intent

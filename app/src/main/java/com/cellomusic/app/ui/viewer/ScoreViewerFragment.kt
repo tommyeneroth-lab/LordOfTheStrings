@@ -120,6 +120,20 @@ class ScoreViewerFragment : Fragment() {
         binding.btnDurShorter.setOnClickListener { viewModel.durationShorter() }
         binding.btnDurLonger.setOnClickListener { viewModel.durationLonger() }
         binding.btnDeleteNote.setOnClickListener { viewModel.deleteElement() }
+        binding.btnClef.setOnClickListener { showClefPicker() }
+    }
+
+    private fun showClefPicker() {
+        val clefs = arrayOf("𝄢  Bass clef", "𝄡  Tenor clef", "𝄞  Treble clef")
+        val types = arrayOf(
+            com.cellomusic.app.domain.model.ClefType.BASS,
+            com.cellomusic.app.domain.model.ClefType.TENOR,
+            com.cellomusic.app.domain.model.ClefType.TREBLE
+        )
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Change clef")
+            .setItems(clefs) { _, which -> viewModel.changeClef(types[which]) }
+            .show()
     }
 
     private fun showExportDialog() {
@@ -147,11 +161,22 @@ class ScoreViewerFragment : Fragment() {
         }
 
         viewLifecycleOwner.lifecycleScope.launch {
+            var lastScrollMeasure = -1
+            var lastScrollNote = -1
             viewModel.currentNotePosition.collect { (measureNum, noteIdx) ->
                 binding.scoreCanvas.highlightNote(measureNum, noteIdx)
                 binding.tvMeasureInfo.text = "Measure $measureNum"
                 if (!binding.seekbarProgress.isPressed) {
                     binding.seekbarProgress.progress = (measureNum - 1).coerceAtLeast(0)
+                }
+                // Auto-scroll to keep the current note centred — on every note
+                // change, not just measure changes, because measures can be wider
+                // than the screen.
+                if ((measureNum != lastScrollMeasure || noteIdx != lastScrollNote) &&
+                    viewModel.playbackState.value == com.cellomusic.app.audio.playback.ScorePlayer.PlaybackState.PLAYING) {
+                    lastScrollMeasure = measureNum
+                    lastScrollNote = noteIdx
+                    binding.scoreCanvas.scrollToNote(measureNum, noteIdx)
                 }
             }
         }

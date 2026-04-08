@@ -5,6 +5,7 @@ import android.media.midi.*
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.annotation.RequiresApi
 import com.cellomusic.app.domain.model.Score
 import android.media.MediaPlayer
@@ -49,6 +50,10 @@ class ScorePlayer(private val context: Context) {
     private var midiManager: MidiManager? = null
     private var midiDevice: MidiDevice? = null
     private var midiInputPort: MidiInputPort? = null
+
+    // Single reusable handler — creating Handler(Looper.getMainLooper()) on every
+    // NOTE_ON event causes GC pressure in a timing-sensitive loop.
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     fun setTempoMultiplier(multiplier: Float) {
         tempoMultiplier = multiplier.coerceIn(0.25f, 2.0f)
@@ -212,30 +217,25 @@ class ScorePlayer(private val context: Context) {
         midiInputPort = port
 
         val filteredEvents = result.events.filter { it.absoluteTick >= startTick }
-        var prevTick = startTick
-        val prevTimeMs = System.currentTimeMillis()
+        // SystemClock.elapsedRealtime() is monotonic — it never jumps backward due
+        // to NTP adjustments, unlike System.currentTimeMillis().
+        val startWallMs  = SystemClock.elapsedRealtime()
+        val startMs      = encoder.ticksToMs(startTick, result.tempoMap)
+
+        // Sort measureStartTicks once for fast lookup (avoid repeated filter+max)
+        val sortedMeasures = result.measureStartTicks.entries
+            .sortedBy { it.value }   // ascending tick order
+        var lastDispatchedMeasure = -1
 
         for (event in filteredEvents) {
             currentCoroutineContext().ensureActive()
 
-            val eventMs = encoder.ticksToMs(event.absoluteTick, result.tempoMap)
-            val startMs = encoder.ticksToMs(startTick, result.tempoMap)
-            val delayMs = eventMs - startMs - (System.currentTimeMillis() - prevTimeMs)
+            // How many ms after start should this event fire?
+            val eventMs  = encoder.ticksToMs(event.absoluteTick, result.tempoMap)
+            val delayMs  = (eventMs - startMs) - (SystemClock.elapsedRealtime() - startWallMs)
+            if (delayMs > 0) delay(delayMs)
 
-            if (delayMs > 0) {
-                delay(delayMs)
-            }
-
-            // Update note-level cursor on first NOTE_ON at each new tick
-            if (event.type == MidiScoreEncoder.MidiEventType.NOTE_ON) {
-                result.noteTickToPosition[event.absoluteTick]?.let { (mNum, eIdx) ->
-                    withContext(Dispatchers.Main) {
-                        _currentNotePosition.value = Pair(mNum, eIdx)
-                    }
-                }
-            }
-
-            // Send MIDI event
+            // Send MIDI bytes immediately — no coroutine switch, no waiting
             val scaledVel = (event.data2 * volumeMultiplier).toInt().coerceIn(1, 127)
             val bytes = when (event.type) {
                 MidiScoreEncoder.MidiEventType.NOTE_ON ->
@@ -248,19 +248,35 @@ class ScorePlayer(private val context: Context) {
                     byteArrayOf((0xB0 or event.channel).toByte(), event.data1.toByte(), event.data2.toByte())
                 MidiScoreEncoder.MidiEventType.TEMPO_CHANGE -> continue
             }
-
             port.send(bytes, 0, bytes.size)
 
-            // Update current measure based on tick position
-            val currentMeasure = result.measureStartTicks.entries
-                .filter { it.value <= event.absoluteTick }
-                .maxByOrNull { it.value }
-                ?.key ?: 1
-            withContext(Dispatchers.Main) {
-                _currentMeasure.value = currentMeasure
-                _playbackPosition.value = if (result.totalTicks > 0) {
-                    event.absoluteTick.toFloat() / result.totalTicks
-                } else 0f
+            // UI updates only on NOTE_ON — use launch (fire-and-forget) so the
+            // timing loop is never blocked waiting for the main thread.
+            if (event.type == MidiScoreEncoder.MidiEventType.NOTE_ON) {
+                val notePos = result.noteTickToPosition[event.absoluteTick]
+
+                // Binary-search the sorted measure list for current measure
+                var measureNum = 1
+                for (entry in sortedMeasures) {
+                    if (entry.value <= event.absoluteTick) measureNum = entry.key else break
+                }
+                val pos = if (result.totalTicks > 0)
+                    event.absoluteTick.toFloat() / result.totalTicks else 0f
+
+                // Only dispatch when something visible actually changed.
+                // Handler.post is fire-and-forget and works from any thread
+                // without needing a CoroutineScope.
+                if (measureNum != lastDispatchedMeasure || notePos != null) {
+                    lastDispatchedMeasure = measureNum
+                    val capturedNotePos = notePos
+                    val capturedMeasure = measureNum
+                    val capturedPos     = pos
+                    mainHandler.post {
+                        capturedNotePos?.let { (m, e) -> _currentNotePosition.value = Pair(m, e) }
+                        _currentMeasure.value   = capturedMeasure
+                        _playbackPosition.value = capturedPos
+                    }
+                }
             }
         }
 

@@ -76,6 +76,49 @@ class ScoreRepository(private val context: Context) {
         }
     }
 
+    /**
+     * Import a JPEG/photo via the remote OMR server at [serverUrl].
+     * Falls back to on-device OMR ([importJpeg]) if the server call fails.
+     */
+    suspend fun importJpegViaServer(
+        uri: Uri,
+        serverUrl: String,
+        onProgress: ((String) -> Unit)? = null
+    ): Result<Long> = withContext(Dispatchers.IO) {
+        val imageFile = copyUriToInternal(uri, "jpg")
+        val title = displayNameFromUri(uri) ?: imageFile.nameWithoutExtension
+
+        val scoreId = UUID.randomUUID().toString()
+        val dir = getScoreDir(scoreId); dir.mkdirs()
+        val originalFile = File(dir, "original.jpg")
+        imageFile.copyTo(originalFile, overwrite = true)
+        val placeholder = emptyScorePlaceholder(scoreId, title, originalFile, "JPEG_OMR")
+        val dbId = scoreDao.insertScore(placeholder)
+
+        try {
+            onProgress?.invoke("Sending to OMR server…")
+            val musicXml = OmrServerClient.submitFile(serverUrl, imageFile)
+            onProgress?.invoke("Parsing MusicXML…")
+            android.util.Log.d("OMR", "MusicXML preview: ${musicXml.take(300)}")
+            val cleanXml = musicXml.replace(Regex("<!DOCTYPE[^>]*>"), "")
+            val score = cleanXml.byteInputStream().use { parser.parse(it) }
+                .copy(id = scoreId, title = title)
+            updateScoreFromOmr(dbId, scoreId, dir, score, "DONE")
+            Result.success(dbId)
+        } catch (e: Exception) {
+            // Server failed — fall back to on-device JPEG OMR
+            onProgress?.invoke("Server failed — falling back to on-device OMR…")
+            try {
+                val omrResult = omr.processJpeg(imageFile, onProgress)
+                updateScoreFromOmr(dbId, scoreId, dir, omrResult.score, "DONE")
+                Result.success(dbId)
+            } catch (e2: Exception) {
+                scoreDao.updateOmrResult(dbId, "FAILED", 0, 0, "C major", 4, 4)
+                Result.failure(e2)
+            }
+        }
+    }
+
     suspend fun importPdf(
         uri: Uri,
         onProgress: ((String) -> Unit)? = null
@@ -183,59 +226,95 @@ class ScoreRepository(private val context: Context) {
     private fun decodeToPcm(file: File, onProgress: ((String) -> Unit)?): PcmData? {
         val extractor = android.media.MediaExtractor()
         extractor.setDataSource(file.absolutePath)
-        var audioTrack = -1
-        var sampleRate = 44100
+        var audioTrack   = -1
+        var sampleRate   = 44100
+        var channelCount = 1
         for (i in 0 until extractor.trackCount) {
-            val fmt = extractor.getTrackFormat(i)
+            val fmt  = extractor.getTrackFormat(i)
             val mime = fmt.getString(android.media.MediaFormat.KEY_MIME) ?: ""
             if (mime.startsWith("audio/")) {
-                audioTrack = i
-                sampleRate = fmt.getInteger(android.media.MediaFormat.KEY_SAMPLE_RATE)
+                audioTrack   = i
+                sampleRate   = fmt.getInteger(android.media.MediaFormat.KEY_SAMPLE_RATE)
+                channelCount = if (fmt.containsKey(android.media.MediaFormat.KEY_CHANNEL_COUNT))
+                                   fmt.getInteger(android.media.MediaFormat.KEY_CHANNEL_COUNT)
+                               else 1
                 break
             }
         }
         if (audioTrack < 0) return null
         extractor.selectTrack(audioTrack)
-        val fmt    = extractor.getTrackFormat(audioTrack)
-        val mime   = fmt.getString(android.media.MediaFormat.KEY_MIME) ?: return null
-        val codec  = android.media.MediaCodec.createDecoderByType(mime)
+        val fmt   = extractor.getTrackFormat(audioTrack)
+        val mime  = fmt.getString(android.media.MediaFormat.KEY_MIME) ?: return null
+        val codec = android.media.MediaCodec.createDecoderByType(mime)
         codec.configure(fmt, null, null, 0)
         codec.start()
+
         val info   = android.media.MediaCodec.BufferInfo()
         val pcmOut = java.io.ByteArrayOutputStream()
         var eos    = false
+
         while (!eos) {
+            // Feed compressed data into the codec
             val inIdx = codec.dequeueInputBuffer(10_000)
             if (inIdx >= 0) {
                 val buf   = codec.getInputBuffer(inIdx) ?: continue
                 val bytes = extractor.readSampleData(buf, 0)
                 if (bytes < 0) {
-                    codec.queueInputBuffer(inIdx, 0, 0, 0, android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                    codec.queueInputBuffer(inIdx, 0, 0, 0,
+                        android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                 } else {
                     codec.queueInputBuffer(inIdx, 0, bytes, extractor.sampleTime, 0)
                     extractor.advance()
                 }
             }
+
+            // Drain decoded PCM output
             val outIdx = codec.dequeueOutputBuffer(info, 10_000)
-            if (outIdx >= 0) {
-                val buf = codec.getOutputBuffer(outIdx) ?: continue
-                val arr = ByteArray(info.size)
-                buf.get(arr)
-                pcmOut.write(arr)
-                codec.releaseOutputBuffer(outIdx, false)
-                if (info.flags and android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) eos = true
+            when {
+                outIdx == android.media.MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                    // Codec tells us the actual output format — update channel count
+                    val outFmt = codec.outputFormat
+                    if (outFmt.containsKey(android.media.MediaFormat.KEY_CHANNEL_COUNT))
+                        channelCount = outFmt.getInteger(android.media.MediaFormat.KEY_CHANNEL_COUNT)
+                    if (outFmt.containsKey(android.media.MediaFormat.KEY_SAMPLE_RATE))
+                        sampleRate   = outFmt.getInteger(android.media.MediaFormat.KEY_SAMPLE_RATE)
+                }
+                outIdx == android.media.MediaCodec.INFO_TRY_AGAIN_LATER -> { /* spin */ }
+                outIdx >= 0 -> {
+                    val buf = codec.getOutputBuffer(outIdx) ?: run {
+                        codec.releaseOutputBuffer(outIdx, false); continue
+                    }
+                    val arr = ByteArray(info.size)
+                    buf.get(arr)
+                    pcmOut.write(arr)
+                    codec.releaseOutputBuffer(outIdx, false)
+                    if (info.flags and android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0)
+                        eos = true
+                }
             }
         }
         codec.stop(); codec.release(); extractor.release()
-        // Convert raw 16-bit PCM bytes to float
-        val raw  = pcmOut.toByteArray()
-        val len  = raw.size / 2
-        val flt  = FloatArray(len) { i ->
-            val lo = raw[i * 2].toInt() and 0xFF
-            val hi = raw[i * 2 + 1].toInt()
-            (hi shl 8 or lo).toShort() / 32768f
+
+        // Convert raw 16-bit little-endian PCM → float, then downmix to mono
+        val raw       = pcmOut.toByteArray()
+        val totalSamples = raw.size / 2   // total interleaved samples across all channels
+        val ch        = channelCount.coerceAtLeast(1)
+
+        val monoLen = totalSamples / ch
+        val mono    = FloatArray(monoLen) { frameIdx ->
+            // Average the ch interleaved samples that belong to this frame
+            var sum = 0f
+            for (c in 0 until ch) {
+                val byteIdx = (frameIdx * ch + c) * 2
+                if (byteIdx + 1 < raw.size) {
+                    val lo = raw[byteIdx].toInt() and 0xFF
+                    val hi = raw[byteIdx + 1].toInt()
+                    sum += (hi shl 8 or lo).toShort() / 32768f
+                }
+            }
+            sum / ch
         }
-        return PcmData(flt, sampleRate)
+        return PcmData(mono, sampleRate)
     }
 
     private data class TrackedNote(val pitch: Pitch, val startMs: Long, val durationMs: Long)
@@ -285,11 +364,11 @@ class ScoreRepository(private val context: Context) {
         if (frameMidi.isEmpty()) return emptyList()
 
         // ── Stage 2: median filter to kill single-frame jitter ────────────────
-        val smoothed = medianFilter(frameMidi, windowSize = 7)
+        val smoothed = medianFilter(frameMidi, windowSize = 11)   // ≈ 275 ms window
 
         // ── Stage 3: run-length grouping ─────────────────────────────────────
         // A "note" is a run of ≥ MIN_FRAMES frames with the same non-zero MIDI.
-        val MIN_FRAMES = 5          // ≈ 125 ms — shorter artefacts discarded
+        val MIN_FRAMES = 8          // ≈ 200 ms — shorter artefacts discarded
         val notes = mutableListOf<TrackedNote>()
         var runStart = 0
         var runMidi  = smoothed[0]
@@ -351,31 +430,47 @@ class ScoreRepository(private val context: Context) {
         val re = DoubleArray(n) { i -> frame[i] * (0.5 - 0.5 * kotlin.math.cos(2.0 * Math.PI * i / n)) }
         val im = DoubleArray(n)
 
-        // Radix-2 DIF FFT (bit-reversal at end)
-        var h = n
-        while (h > 1) {
-            h /= 2
-            for (j in 0 until h) {
-                val w  = -2.0 * Math.PI * j / (h * 2)
-                val wr = kotlin.math.cos(w)
-                val wi = kotlin.math.sin(w)
-                for (k in j until n step h * 2) {
-                    val k2 = k + h
-                    val tr = re[k2] * wr - im[k2] * wi
-                    val ti = re[k2] * wi + im[k2] * wr
-                    re[k2] = re[k] - tr;  im[k2] = im[k] - ti
-                    re[k]  = re[k] + tr;  im[k]  = im[k] + ti
+        // Correct radix-2 DIF FFT.
+        //
+        // Each stage halves the group size.  The butterfly for group size `len`:
+        //   sum  → re[k]  = re[k] + re[k2]          (no twiddle on sum)
+        //   diff → re[k2] = (re[k] - re[k2]) * W^j  (twiddle on difference)
+        // where W = e^{-2πi/len}.
+        // Bit-reversal permutation is applied once at the end.
+        var len = n
+        while (len > 1) {
+            val half   = len / 2
+            val ang    = -2.0 * Math.PI / len
+            val wStepR = kotlin.math.cos(ang)
+            val wStepI = kotlin.math.sin(ang)
+            var pos = 0
+            while (pos < n) {
+                var curR = 1.0;  var curI = 0.0
+                for (j in 0 until half) {
+                    val k  = pos + j
+                    val k2 = k + half
+                    val tR = re[k] - re[k2]
+                    val tI = im[k] - im[k2]
+                    re[k] += re[k2];  im[k] += im[k2]          // sum
+                    re[k2] = tR * curR - tI * curI              // diff * W^j
+                    im[k2] = tR * curI + tI * curR
+                    val nR = curR * wStepR - curI * wStepI      // advance twiddle
+                    curI   = curR * wStepI + curI * wStepR
+                    curR   = nR
                 }
+                pos += len
             }
+            len = half
         }
+        // Bit-reversal permutation (output is bit-reversed after DIF stages)
         var j2 = 0
         for (i2 in 1 until n) {
             var bit = n shr 1
             while (j2 and bit != 0) { j2 = j2 xor bit; bit = bit shr 1 }
             j2 = j2 xor bit
             if (i2 < j2) {
-                val tr = re[i2]; re[i2] = re[j2]; re[j2] = tr
-                val ti = im[i2]; im[i2] = im[j2]; im[j2] = ti
+                var t = re[i2]; re[i2] = re[j2]; re[j2] = t
+                    t = im[i2]; im[i2] = im[j2]; im[j2] = t
             }
         }
 
@@ -619,9 +714,11 @@ class ScoreRepository(private val context: Context) {
         scoreDao.setFavorite(id, favorite)
     }
 
-    suspend fun renameScore(id: Long, newTitle: String) {
+    suspend fun renameScore(id: Long, newTitle: String, newComposer: String? = null) {
         val trimmed = newTitle.trim()
-        if (trimmed.isNotEmpty()) scoreDao.updateTitle(id, trimmed)
+        if (trimmed.isEmpty()) return
+        val composer = newComposer?.trim()?.takeIf { it.isNotEmpty() }
+        scoreDao.updateTitleAndComposer(id, trimmed, composer)
     }
 
     private fun saveScoreToStorage(score: Score, originalUri: Uri, sourceType: String): ScoreEntity {

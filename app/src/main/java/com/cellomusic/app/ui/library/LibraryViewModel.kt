@@ -81,6 +81,22 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    fun importJpegViaServer(uri: Uri, serverUrl: String) = viewModelScope.launch {
+        _omrProgress.value = "Sending to OMR server…"
+        val result = repository.importJpegViaServer(uri, serverUrl) { msg ->
+            _omrProgress.value = msg
+            android.util.Log.d("OMR", "Progress: $msg")
+        }
+        _omrProgress.value = null
+        _importStatus.value = result.fold(
+            onSuccess = { "Image imported via server" },
+            onFailure = { e ->
+                android.util.Log.e("OMR", "importJpegViaServer failed", e)
+                "Image import failed: ${e.message}"
+            }
+        )
+    }
+
     fun importMp3(uri: Uri) = viewModelScope.launch {
         _omrProgress.value = "Analysing audio…"
         val result = repository.importMp3(uri) { msg -> _omrProgress.value = msg }
@@ -153,7 +169,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         repository.setFavorite(entity.id, !entity.isFavorite)
     }
 
-    fun renameScore(entity: ScoreEntity, newTitle: String) = viewModelScope.launch {
-        repository.renameScore(entity.id, newTitle)
+    fun renameScore(entity: ScoreEntity, newTitle: String, newComposer: String?) = viewModelScope.launch {
+        repository.renameScore(entity.id, newTitle, newComposer)
     }
 }

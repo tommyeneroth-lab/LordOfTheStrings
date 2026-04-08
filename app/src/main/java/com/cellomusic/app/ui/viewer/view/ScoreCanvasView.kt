@@ -1,5 +1,6 @@
 package com.cellomusic.app.ui.viewer.view
 
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.*
 import android.util.AttributeSet
@@ -7,6 +8,7 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
+import android.view.animation.DecelerateInterpolator
 import com.cellomusic.app.domain.model.*
 import kotlin.math.abs
 import kotlin.math.min
@@ -81,6 +83,12 @@ class ScoreCanvasView @JvmOverloads constructor(
         color = INK_SEC
         textSize = 9f * dp
     }
+    // Amber paint for non-first-position Roman numeral labels
+    private val positionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#C9A84C")   // antique_gold
+        textSize = 8f * dp
+        textAlign = Paint.Align.CENTER
+    }
     private val cursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(80, 0, 120, 255)
         style = Paint.Style.FILL
@@ -140,6 +148,93 @@ class ScoreCanvasView @JvmOverloads constructor(
     var fingeringsVisible: Boolean = false
         set(value) { field = value; invalidate() }
 
+    // Auto-scroll: true while the user's finger is on screen — suppresses auto-scroll
+    private var isUserTouching = false
+    private var scrollAnimator: android.animation.AnimatorSet? = null
+
+    /**
+     * Smoothly scrolls the canvas so [measureNum] is vertically at ~25% from
+     * the top and horizontally centred.  This is essential when measures are
+     * wider than the screen.  Ignored while the user is actively panning.
+     */
+    fun scrollToMeasure(measureNum: Int) {
+        if (isUserTouching) return
+        val layout = measureLayouts.firstOrNull { it.measure.number == measureNum } ?: return
+
+        // Vertical: keep the measure row at 25% from the top
+        val targetScreenY = height * 0.25f
+        val scoreY        = layout.y - STAFF_SPACING
+        val newTranslateY = targetScreenY - scoreY * scaleFactor
+
+        // Horizontal: centre the measure in the viewport
+        val scoreCenterX  = layout.x + layout.width / 2f
+        val targetScreenX = width / 2f
+        val newTranslateX = targetScreenX - scoreCenterX * scaleFactor
+
+        val dxOk = kotlin.math.abs(newTranslateX - translateX) < 2f
+        val dyOk = kotlin.math.abs(newTranslateY - translateY) < 2f
+        if (dxOk && dyOk) return
+
+        scrollAnimator?.cancel()
+
+        val animX = ValueAnimator.ofFloat(translateX, newTranslateX).apply {
+            addUpdateListener { translateX = animatedValue as Float }
+        }
+        val animY = ValueAnimator.ofFloat(translateY, newTranslateY).apply {
+            addUpdateListener { translateY = animatedValue as Float; invalidate() }
+        }
+        scrollAnimator = android.animation.AnimatorSet().apply {
+            playTogether(animX, animY)
+            duration = 280
+            interpolator = DecelerateInterpolator()
+            start()
+        }
+    }
+
+    /**
+     * Smoothly scrolls so the currently played note appears at ~20% from the
+     * left edge of the screen, leaving ~80% of the width to show upcoming notes.
+     * The measure row is kept at ~25% from the top.
+     */
+    fun scrollToNote(measureNum: Int, noteIdx: Int) {
+        if (isUserTouching) return
+        val layout = measureLayouts.firstOrNull { it.measure.number == measureNum } ?: return
+        val info = noteLayoutCache[measureNum]
+
+        // Vertical: keep the measure row at 25% from the top
+        val targetScreenY = height * 0.25f
+        val scoreY        = layout.y - STAFF_SPACING
+        val newTranslateY = targetScreenY - scoreY * scaleFactor
+
+        // Horizontal: place the current note at ~20% from the left so the
+        // player can read ahead to upcoming notes on the right.
+        val noteX = if (info != null && noteIdx in info.xPositions.indices)
+            info.xPositions[noteIdx]
+        else
+            layout.x + layout.width / 2f
+        val targetScreenX = width * 0.20f
+        val newTranslateX = targetScreenX - noteX * scaleFactor
+
+        val dxOk = kotlin.math.abs(newTranslateX - translateX) < 2f
+        val dyOk = kotlin.math.abs(newTranslateY - translateY) < 2f
+        if (dxOk && dyOk) return
+
+        scrollAnimator?.cancel()
+
+        val animX = ValueAnimator.ofFloat(translateX, newTranslateX).apply {
+            addUpdateListener { translateX = animatedValue as Float }
+        }
+        val animY = ValueAnimator.ofFloat(translateY, newTranslateY).apply {
+            addUpdateListener { translateY = animatedValue as Float; invalidate() }
+        }
+        scrollAnimator = android.animation.AnimatorSet().apply {
+            playTogether(animX, animY)
+            duration = 200
+            interpolator = DecelerateInterpolator()
+            start()
+        }
+    }
+
     // Score data
     private var score: Score? = null
     private var measures: List<Measure> = emptyList()
@@ -148,7 +243,8 @@ class ScoreCanvasView @JvmOverloads constructor(
     private var currentNoteHighlight: Int = -1   // element index within measure
 
     // Note layout cache — populated in drawMeasure, used for tap-to-seek
-    private data class NoteLayoutInfo(val contentX: Float, val noteStep: Float, val noteCount: Int)
+    // Stores the center-X of each element within the measure.
+    private data class NoteLayoutInfo(val xPositions: FloatArray, val noteCount: Int)
     private val noteLayoutCache = mutableMapOf<Int, NoteLayoutInfo>() // measureNumber → layout
 
     /** Called when the user taps a note. Arguments: measureNumber, noteIndex. */
@@ -249,7 +345,11 @@ class ScoreCanvasView @JvmOverloads constructor(
     ) {
         val slice = measures.subList(from, to)
         val totalNatural = slice.sumOf { computeMeasureWidth(it).toDouble() }.toFloat()
-        val scale = if (totalNatural > 0) availableWidth / totalNatural else 1f
+        // Only stretch to fill the line — never compress below natural width.
+        // If a line's natural width exceeds available space the canvas is
+        // pannable/zoomable so the user can still see everything.
+        val scale = if (totalNatural > 0 && totalNatural < availableWidth)
+            availableWidth / totalNatural else 1f
 
         var x = startX
         for (j in slice.indices) {
@@ -266,7 +366,7 @@ class ScoreCanvasView @JvmOverloads constructor(
     }
 
     private fun computeMeasureWidth(measure: Measure): Float {
-        // Base width per note count, plus fixed overhead for clef/time/key changes
+        // Fixed overhead for clef/time/key changes
         var overhead = 0f
         if (measure.clef != null) overhead += 24f * dp
         if (measure.timeSignature != null) overhead += 16f * dp
@@ -274,8 +374,14 @@ class ScoreCanvasView @JvmOverloads constructor(
             overhead += abs(measure.keySignature.fifths) * 8f * dp
         }
 
-        val noteCount = measure.elements.size.coerceAtLeast(1)
-        val noteWidth = STAFF_SPACING * 4f * noteCount + overhead + 12f * dp
+        // Width proportional to total duration weight (quarter = 1.0).
+        // Each element gets at least 1.0 width unit so even 16th/32nd notes
+        // have enough room for their notehead + accidentals + fingerings.
+        // This means dense measures get wide, pushing fewer measures per line.
+        val durationWeight = measure.elements.sumOf {
+            maxOf(it.duration.toTicks().toDouble() / 480.0, 1.0)
+        }.toFloat().coerceAtLeast(1f)
+        val noteWidth = STAFF_SPACING * 6f * durationWeight + overhead + 16f * dp
         return noteWidth.coerceAtLeast(MEASURE_MIN_WIDTH)
     }
 
@@ -341,20 +447,32 @@ class ScoreCanvasView @JvmOverloads constructor(
             activeTimeSignature = timeToDraw
         }
 
-        // Calculate note positions
+        // Calculate duration-proportional note positions within the measure
         val noteAreaWidth = (x + w - MARGIN_RIGHT / 4 - contentX).coerceAtLeast(20f * dp)
-        val noteCount = m.elements.size.coerceAtLeast(1)
-        val noteStep = noteAreaWidth / noteCount
+        val elements = m.elements
+        // Weight each element by its duration (quarter = 480 ticks).
+        // Minimum weight of 0.5 so very short notes still have room.
+        val weights = elements.map { maxOf(it.duration.toTicks().toFloat() / 480f, 1.0f) }
+        val totalWeight = weights.sum().coerceAtLeast(1f)
+        // Compute center-X for each element
+        val noteXPositions = FloatArray(elements.size)
+        var runningWeight = 0f
+        for (i in elements.indices) {
+            val elemWidth = noteAreaWidth * weights[i] / totalWeight
+            noteXPositions[i] = contentX + runningWeight / totalWeight * noteAreaWidth + elemWidth / 2f
+            runningWeight += weights[i]
+        }
 
-        // Cache layout for tap detection
-        noteLayoutCache[m.number] = NoteLayoutInfo(contentX, noteStep, m.elements.size)
+        // Cache for tap detection
+        noteLayoutCache[m.number] = NoteLayoutInfo(noteXPositions, elements.size)
 
         // Draw note-level cursor — semi-transparent box around the active note column
-        if (m.number == currentMeasureHighlight && m.elements.isNotEmpty()) {
-            val ni = if (currentNoteHighlight >= 0) currentNoteHighlight.coerceIn(0, m.elements.size - 1)
+        if (m.number == currentMeasureHighlight && elements.isNotEmpty()) {
+            val ni = if (currentNoteHighlight >= 0) currentNoteHighlight.coerceIn(0, elements.size - 1)
                      else 0
-            val cursorCenterX = contentX + ni * noteStep + noteStep / 2f
-            val halfW = (noteStep / 2f).coerceAtLeast(NOTE_HEAD_W)
+            val cursorCenterX = noteXPositions[ni]
+            val elemW = noteAreaWidth * weights[ni] / totalWeight
+            val halfW = (elemW / 2f).coerceAtLeast(NOTE_HEAD_W)
             val boxRect = android.graphics.RectF(
                 cursorCenterX - halfW,
                 y - STAFF_SPACING,
@@ -366,10 +484,11 @@ class ScoreCanvasView @JvmOverloads constructor(
         }
 
         // Draw edit-selection highlight (orange) for the selected note
-        if (m.number == selectedMeasureNum && m.elements.isNotEmpty()) {
-            val ni = selectedNoteIdx.coerceIn(0, m.elements.size - 1)
-            val selCenterX = contentX + ni * noteStep + noteStep / 2f
-            val halfW = (noteStep / 2f).coerceAtLeast(NOTE_HEAD_W)
+        if (m.number == selectedMeasureNum && elements.isNotEmpty()) {
+            val ni = selectedNoteIdx.coerceIn(0, elements.size - 1)
+            val selCenterX = noteXPositions[ni]
+            val elemW = noteAreaWidth * weights[ni] / totalWeight
+            val halfW = (elemW / 2f).coerceAtLeast(NOTE_HEAD_W)
             val selRect = android.graphics.RectF(
                 selCenterX - halfW, y - STAFF_SPACING * 0.5f,
                 selCenterX + halfW, y + STAFF_HEIGHT + STAFF_SPACING * 0.5f
@@ -385,8 +504,8 @@ class ScoreCanvasView @JvmOverloads constructor(
 
         // Draw notes
         var noteIdx = 0
-        for (element in m.elements) {
-            val noteX = contentX + noteIdx * noteStep + noteStep / 2
+        for (element in elements) {
+            val noteX = noteXPositions[noteIdx]
             when (element) {
                 is Note -> {
                     drawNote(canvas, element, noteX, y)
@@ -867,9 +986,28 @@ class ScoreCanvasView @JvmOverloads constructor(
     }
 
     private fun drawFingering(canvas: Canvas, fingering: Fingering, x: Float, noteY: Float, staffY: Float) {
-        val paint = Paint(smallTextPaint)
         val fingerText = if (fingering.isThumbPosition) "T" else fingering.finger.toString()
-        canvas.drawText(fingerText, x - 3f * dp, staffY - STAFF_SPACING * 2.5f, paint)
+        canvas.drawText(fingerText, x - 3f * dp, staffY - STAFF_SPACING * 2.5f, smallTextPaint)
+
+        // For any position other than 1st (positionShift > 0), draw a Roman numeral
+        // label in amber above the finger number so the player knows they've shifted.
+        val posLabel = positionRomanNumeral(fingering.positionShift)
+        if (posLabel.isNotEmpty()) {
+            canvas.drawText(posLabel, x, staffY - STAFF_SPACING * 4.2f, positionPaint)
+        }
+    }
+
+    /** Maps a position shift (semitones from open string) to a Roman numeral string. */
+    private fun positionRomanNumeral(shift: Int): String = when (shift) {
+        0    -> ""       // 1st position — no label needed
+        2    -> "II"
+        4    -> "III"
+        5    -> "IV"
+        7    -> "V"
+        9    -> "VI"
+        12   -> "VII"
+        14   -> "VIII"
+        else -> if (shift > 14) "T" else ""
     }
 
     private fun drawRest(canvas: Canvas, rest: Rest, x: Float, staffY: Float) {
@@ -1023,6 +1161,15 @@ class ScoreCanvasView @JvmOverloads constructor(
 
     // Touch handling for zoom/pan
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                isUserTouching = true
+                scrollAnimator?.cancel()
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_UP -> {
+                isUserTouching = false
+            }
+        }
         scaleDetector.onTouchEvent(event)
         gestureDetector.onTouchEvent(event)
         return true
@@ -1056,10 +1203,15 @@ class ScoreCanvasView @JvmOverloads constructor(
             } ?: return false
 
             val info = noteLayoutCache[layout.measure.number] ?: return false
-            if (info.noteCount == 0) return false
+            if (info.noteCount == 0 || info.xPositions.isEmpty()) return false
 
-            val noteIdx = ((scoreX - info.contentX) / info.noteStep)
-                .toInt().coerceIn(0, info.noteCount - 1)
+            // Find the closest element by X position
+            var noteIdx = 0
+            var minDist = Float.MAX_VALUE
+            for (i in info.xPositions.indices) {
+                val dist = kotlin.math.abs(scoreX - info.xPositions[i])
+                if (dist < minDist) { minDist = dist; noteIdx = i }
+            }
 
             onNoteClicked?.invoke(layout.measure.number, noteIdx)
             return true

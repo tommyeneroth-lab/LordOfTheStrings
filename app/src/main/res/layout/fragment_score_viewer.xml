@@ -109,76 +109,94 @@
     </ScrollView>
 
     <!-- Edit toolbar (shown when a note is selected) -->
-    <LinearLayout
+    <HorizontalScrollView
         android:id="@+id/layout_edit_toolbar"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
         android:background="@color/score_dark_surface"
-        android:gravity="center"
-        android:paddingHorizontal="8dp"
         android:paddingVertical="6dp"
         android:elevation="6dp"
         android:visibility="gone"
+        android:scrollbars="none"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintBottom_toTopOf="@id/layout_controls">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_pitch_up"
+        <LinearLayout
             android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:text="▲ Pitch"
-            android:textSize="12sp"
-            android:textColor="@color/score_dark_ink"
-            android:layout_marginEnd="4dp"
-            app:strokeColor="@color/white_70"
-            style="@style/Widget.Material3.Button.OutlinedButton" />
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="8dp">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_pitch_down"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:text="▼ Pitch"
-            android:textSize="12sp"
-            android:textColor="@color/score_dark_ink"
-            android:layout_marginEnd="4dp"
-            app:strokeColor="@color/white_70"
-            style="@style/Widget.Material3.Button.OutlinedButton" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_pitch_up"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="▲ Pitch"
+                android:textSize="12sp"
+                android:textColor="@color/score_dark_ink"
+                android:layout_marginEnd="4dp"
+                app:strokeColor="@color/white_70"
+                style="@style/Widget.Material3.Button.OutlinedButton" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_dur_shorter"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:text="◂ Dur"
-            android:textSize="12sp"
-            android:textColor="@color/score_dark_ink"
-            android:layout_marginEnd="4dp"
-            app:strokeColor="@color/white_70"
-            style="@style/Widget.Material3.Button.OutlinedButton" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_pitch_down"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="▼ Pitch"
+                android:textSize="12sp"
+                android:textColor="@color/score_dark_ink"
+                android:layout_marginEnd="4dp"
+                app:strokeColor="@color/white_70"
+                style="@style/Widget.Material3.Button.OutlinedButton" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_dur_longer"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:text="Dur ▸"
-            android:textSize="12sp"
-            android:textColor="@color/score_dark_ink"
-            android:layout_marginEnd="4dp"
-            app:strokeColor="@color/white_70"
-            style="@style/Widget.Material3.Button.OutlinedButton" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_dur_shorter"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="◂ Dur"
+                android:textSize="12sp"
+                android:textColor="@color/score_dark_ink"
+                android:layout_marginEnd="4dp"
+                app:strokeColor="@color/white_70"
+                style="@style/Widget.Material3.Button.OutlinedButton" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_delete_note"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:text="✕ Del"
-            android:textSize="12sp"
-            android:textColor="@color/score_dark_ink"
-            app:strokeColor="@color/white_70"
-            style="@style/Widget.Material3.Button.OutlinedButton" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_dur_longer"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="Dur ▸"
+                android:textSize="12sp"
+                android:textColor="@color/score_dark_ink"
+                android:layout_marginEnd="4dp"
+                app:strokeColor="@color/white_70"
+                style="@style/Widget.Material3.Button.OutlinedButton" />
 
-    </LinearLayout>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_clef"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="𝄢 Clef"
+                android:textSize="12sp"
+                android:textColor="@color/score_dark_ink"
+                android:layout_marginEnd="4dp"
+                app:strokeColor="@color/white_70"
+                style="@style/Widget.Material3.Button.OutlinedButton" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_delete_note"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="✕ Del"
+                android:textSize="12sp"
+                android:textColor="@color/score_dark_ink"
+                app:strokeColor="@color/white_70"
+                style="@style/Widget.Material3.Button.OutlinedButton" />
+
+        </LinearLayout>
+
+    </HorizontalScrollView>
 
     <!-- Playback controls -->
     <LinearLayout

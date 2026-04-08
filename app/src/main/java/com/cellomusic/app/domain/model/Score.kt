@@ -187,7 +187,9 @@ data class TempoMark(
 data class Fingering(
     val finger: Int,
     val isThumbPosition: Boolean = false,
-    val stringNumber: Int? = null
+    val stringNumber: Int? = null,
+    /** Semitones above open string for this hand position.  0 = 1st position. */
+    val positionShift: Int = 0
 )
 
 @Serializable

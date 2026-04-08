@@ -12,7 +12,7 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
-import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.LinearLayoutManager
 import com.cellomusic.app.R
 import com.cellomusic.app.data.db.entity.ScoreEntity
 import com.cellomusic.app.databinding.FragmentLibraryBinding
@@ -49,7 +49,15 @@ class LibraryFragment : Fragment() {
     private val pickJpeg = registerForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        uri?.let { viewModel.importJpeg(it) }
+        uri ?: return@registerForActivityResult
+        val serverUrl = requireContext()
+            .getSharedPreferences("cellomusic_prefs", Context.MODE_PRIVATE)
+            .getString("omr_server_url", "") ?: ""
+        if (serverUrl.isNotEmpty()) {
+            viewModel.importJpegViaServer(uri, serverUrl)
+        } else {
+            viewModel.importJpeg(uri)
+        }
     }
 
     private val pickMidi = registerForActivityResult(
@@ -83,7 +91,7 @@ class LibraryFragment : Fragment() {
             onScoreLongClick = { entity -> showScoreOptions(entity) }
         )
         binding.recyclerScores.apply {
-            layoutManager = GridLayoutManager(requireContext(), 2)
+            layoutManager = LinearLayoutManager(requireContext())
             adapter = this@LibraryFragment.adapter
         }
     }
@@ -237,35 +245,62 @@ class LibraryFragment : Fragment() {
     }
 
     private fun showRenameDialog(entity: ScoreEntity) {
-        val editText = android.widget.EditText(requireContext()).apply {
+        val dp = resources.displayMetrics.density
+        val padding = (20 * dp).toInt()
+        val paddingSmall = (8 * dp).toInt()
+
+        val etTitle = android.widget.EditText(requireContext()).apply {
             setText(entity.title)
             selectAll()
             hint = "Score title"
             inputType = android.text.InputType.TYPE_CLASS_TEXT or
                         android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS
         }
-        val container = android.widget.FrameLayout(requireContext()).apply {
-            val padding = (20 * resources.displayMetrics.density).toInt()
-            setPadding(padding, 8, padding, 8)
-            addView(editText)
+        val etComposer = android.widget.EditText(requireContext()).apply {
+            setText(entity.composer ?: "")
+            hint = "Composer (optional)"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                        android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS
         }
+
+        val container = android.widget.LinearLayout(requireContext()).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(padding, paddingSmall, padding, paddingSmall)
+            addView(android.widget.TextView(context).apply {
+                text = "Title"
+                textSize = 12f
+                setTextColor(android.graphics.Color.GRAY)
+            })
+            addView(etTitle)
+            addView(android.widget.TextView(context).apply {
+                text = "Composer"
+                textSize = 12f
+                setTextColor(android.graphics.Color.GRAY)
+                setPadding(0, paddingSmall, 0, 0)
+            })
+            addView(etComposer)
+        }
+
         android.app.AlertDialog.Builder(requireContext())
-            .setTitle("Rename Score")
+            .setTitle("Edit Score Info")
             .setView(container)
-            .setPositiveButton("Rename") { _, _ ->
-                val newTitle = editText.text.toString().trim()
-                if (newTitle.isNotEmpty()) viewModel.renameScore(entity, newTitle)
+            .setPositiveButton("Save") { _, _ ->
+                val newTitle = etTitle.text.toString().trim()
+                val newComposer = etComposer.text.toString().trim()
+                if (newTitle.isNotEmpty()) {
+                    viewModel.renameScore(entity, newTitle, newComposer.ifEmpty { null })
+                }
             }
             .setNegativeButton("Cancel", null)
             .show()
-            .also { dialog ->
-                // Auto-show keyboard when dialog opens
-                editText.postDelayed({
-                    editText.requestFocus()
+            .also {
+                etTitle.postDelayed({
+                    etTitle.requestFocus()
+                    etTitle.setSelection(etTitle.text.length)
                     val imm = requireContext().getSystemService(
                         android.content.Context.INPUT_METHOD_SERVICE
                     ) as android.view.inputmethod.InputMethodManager
-                    imm.showSoftInput(editText, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                    imm.showSoftInput(etTitle, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
                 }, 100)
             }
     }
