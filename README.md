@@ -1,6 +1,7 @@
 # LordOfTheStrings 🎻
 
 A full-featured Android app for cello musicians — scan and play music scores, tune your cello, and keep time with a precision metronome.
+<img width="2816" height="1536" alt="Gemini_Generated_Image_5ep8re5ep8re5ep8" src="https://github.com/user-attachments/assets/b2d9afd6-dcf7-4d1a-8c31-e981f77debcd" />
 
 ## Features
 
