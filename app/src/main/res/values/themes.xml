@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.CelloMusicApp" parent="Theme.Material3.DayNight.NoActionBar">
+    <style name="Theme.CelloMusicApp" parent="Theme.Material3.Dark.NoActionBar">
         <item name="colorPrimary">@color/primary</item>
         <item name="colorPrimaryVariant">@color/primary_variant</item>
         <item name="colorSecondary">@color/secondary</item>
@@ -12,5 +12,37 @@
         <item name="colorOnSecondary">@color/on_secondary</item>
         <item name="colorOnBackground">@color/on_background</item>
         <item name="colorOnSurface">@color/on_surface</item>
+
+        <!-- Status bar and navigation bar — pure black -->
+        <item name="android:statusBarColor">@color/primary_variant</item>
+        <item name="android:navigationBarColor">@color/primary_variant</item>
+
+        <!-- Bottom nav styling -->
+        <item name="bottomNavigationStyle">@style/Widget.LOTS.BottomNav</item>
+
+        <!-- Default button tint -->
+        <item name="materialButtonStyle">@style/Widget.LOTS.Button</item>
+    </style>
+
+    <!-- Bottom navigation: black bg, gold selected, grey unselected -->
+    <style name="Widget.LOTS.BottomNav" parent="Widget.Material3.BottomNavigationView">
+        <item name="android:background">@color/primary_variant</item>
+        <item name="itemIconTint">@color/bottom_nav_colors</item>
+        <item name="itemTextColor">@color/bottom_nav_colors</item>
+        <item name="labelVisibilityMode">labeled</item>
+    </style>
+
+    <!-- Unified button style: outlined, gold stroke, ivory text -->
+    <style name="Widget.LOTS.Button" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:textColor">@color/aged_ivory</item>
+        <item name="strokeColor">@color/antique_gold_dim</item>
+        <item name="cornerRadius">8dp</item>
+    </style>
+
+    <!-- Filled gold button (for primary actions) -->
+    <style name="Widget.LOTS.Button.Gold" parent="Widget.Material3.Button">
+        <item name="android:textColor">@color/oak_deep</item>
+        <item name="backgroundTint">@color/antique_gold</item>
+        <item name="cornerRadius">8dp</item>
     </style>
 </resources>

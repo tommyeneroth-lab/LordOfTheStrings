@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Brand colors -->
-    <color name="primary">#1A237E</color>
-    <color name="primary_variant">#121858</color>
-    <color name="secondary">#0288D1</color>
-    <color name="secondary_variant">#01579B</color>
+    <!-- Brand colors — black/gold theme throughout -->
+    <color name="primary">#111111</color>
+    <color name="primary_variant">#0A0A0A</color>
+    <color name="secondary">#C9A84C</color>
+    <color name="secondary_variant">#8A6E2A</color>
 
-    <!-- General backgrounds -->
-    <color name="background">#FAFAFA</color>
-    <color name="surface">#FFFFFF</color>
-    <color name="on_primary">#FFFFFF</color>
-    <color name="on_secondary">#FFFFFF</color>
-    <color name="on_background">#212121</color>
-    <color name="on_surface">#212121</color>
+    <!-- General backgrounds (dark) -->
+    <color name="background">#0A0A0A</color>
+    <color name="surface">#161616</color>
+    <color name="on_primary">#F4E4C1</color>
+    <color name="on_secondary">#1C0E07</color>
+    <color name="on_background">#E8E8E8</color>
+    <color name="on_surface">#E8E8E8</color>
     <color name="error">#B00020</color>
     <color name="secondary_text">#757575</color>
     <color name="white">#FFFFFF</color>
@@ -38,7 +38,7 @@
     <color name="oak_medium">#5C3A1E</color>
     <color name="oak_light">#8B6347</color>
     <color name="oak_grain">#3E2215</color>
-    <color name="oak_panel">#4A2C18</color>
+    <color name="oak_panel">#1C1C1C</color>
     <color name="antique_gold">#C9A84C</color>
     <color name="antique_gold_dim">#8A6E2A</color>
     <color name="aged_ivory">#F4E4C1</color>

@@ -4,7 +4,17 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/score_dark_bg">
+    android:background="@color/background">
+
+    <!-- Gold accent strip -->
+    <View
+        android:id="@+id/accent_strip"
+        android:layout_width="0dp"
+        android:layout_height="3dp"
+        android:background="@color/antique_gold"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
 
     <!-- Score title bar -->
     <LinearLayout
@@ -12,9 +22,9 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="@color/score_dark_surface"
+        android:background="@color/surface"
         android:padding="12dp"
-        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/accent_strip"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
@@ -37,14 +47,16 @@
                     android:text="Score Title"
                     android:textSize="18sp"
                     android:textStyle="bold"
-                    android:textColor="@color/white" />
+                    android:fontFamily="serif"
+                    android:textColor="@color/aged_ivory" />
 
                 <TextView
                     android:id="@+id/tv_composer"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textSize="14sp"
-                    android:textColor="@color/white_70" />
+                    android:fontFamily="serif"
+                    android:textColor="@color/antique_gold_dim" />
 
             </LinearLayout>
 
@@ -57,9 +69,9 @@
                 android:layout_marginEnd="4dp"
                 android:minWidth="0dp"
                 android:paddingHorizontal="12dp"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:textColor="@color/white"
-                app:strokeColor="@color/white_70" />
+                style="@style/Widget.LOTS.Button"
+                android:textColor="@color/aged_ivory"
+                app:strokeColor="@color/antique_gold_dim" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_fingering"
@@ -70,9 +82,9 @@
                 android:layout_marginEnd="4dp"
                 android:minWidth="0dp"
                 android:paddingHorizontal="10dp"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:textColor="@color/white"
-                app:strokeColor="@color/white_70" />
+                style="@style/Widget.LOTS.Button"
+                android:textColor="@color/aged_ivory"
+                app:strokeColor="@color/antique_gold_dim" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_export"
@@ -80,9 +92,9 @@
                 android:layout_height="wrap_content"
                 android:text="⬆ Export"
                 android:textSize="13sp"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:textColor="@color/white"
-                app:strokeColor="@color/white_70" />
+                style="@style/Widget.LOTS.Button"
+                android:textColor="@color/aged_ivory"
+                app:strokeColor="@color/antique_gold_dim" />
 
         </LinearLayout>
 
@@ -95,6 +107,7 @@
         android:layout_height="0dp"
         android:fillViewport="true"
         app:layout_constraintTop_toBottomOf="@id/layout_header"
+        android:background="@color/background"
         app:layout_constraintBottom_toTopOf="@id/layout_edit_toolbar"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
@@ -103,7 +116,7 @@
             android:id="@+id/score_canvas"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@color/score_dark_bg"
+            android:background="@color/background"
             android:minHeight="600dp" />
 
     </ScrollView>
@@ -113,7 +126,7 @@
         android:id="@+id/layout_edit_toolbar"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:background="@color/score_dark_surface"
+        android:background="@color/surface"
         android:paddingVertical="6dp"
         android:elevation="6dp"
         android:visibility="gone"
@@ -135,10 +148,10 @@
                 android:layout_height="36dp"
                 android:text="▲ Pitch"
                 android:textSize="12sp"
-                android:textColor="@color/score_dark_ink"
+                android:textColor="@color/aged_ivory"
                 android:layout_marginEnd="4dp"
-                app:strokeColor="@color/white_70"
-                style="@style/Widget.Material3.Button.OutlinedButton" />
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_pitch_down"
@@ -146,10 +159,10 @@
                 android:layout_height="36dp"
                 android:text="▼ Pitch"
                 android:textSize="12sp"
-                android:textColor="@color/score_dark_ink"
+                android:textColor="@color/aged_ivory"
                 android:layout_marginEnd="4dp"
-                app:strokeColor="@color/white_70"
-                style="@style/Widget.Material3.Button.OutlinedButton" />
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_dur_shorter"
@@ -157,10 +170,10 @@
                 android:layout_height="36dp"
                 android:text="◂ Dur"
                 android:textSize="12sp"
-                android:textColor="@color/score_dark_ink"
+                android:textColor="@color/aged_ivory"
                 android:layout_marginEnd="4dp"
-                app:strokeColor="@color/white_70"
-                style="@style/Widget.Material3.Button.OutlinedButton" />
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_dur_longer"
@@ -168,10 +181,10 @@
                 android:layout_height="36dp"
                 android:text="Dur ▸"
                 android:textSize="12sp"
-                android:textColor="@color/score_dark_ink"
+                android:textColor="@color/aged_ivory"
                 android:layout_marginEnd="4dp"
-                app:strokeColor="@color/white_70"
-                style="@style/Widget.Material3.Button.OutlinedButton" />
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_clef"
@@ -179,10 +192,10 @@
                 android:layout_height="36dp"
                 android:text="𝄢 Clef"
                 android:textSize="12sp"
-                android:textColor="@color/score_dark_ink"
+                android:textColor="@color/aged_ivory"
                 android:layout_marginEnd="4dp"
-                app:strokeColor="@color/white_70"
-                style="@style/Widget.Material3.Button.OutlinedButton" />
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_delete_note"
@@ -190,9 +203,9 @@
                 android:layout_height="36dp"
                 android:text="✕ Del"
                 android:textSize="12sp"
-                android:textColor="@color/score_dark_ink"
-                app:strokeColor="@color/white_70"
-                style="@style/Widget.Material3.Button.OutlinedButton" />
+                android:textColor="@color/aged_ivory"
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
 
         </LinearLayout>
 
@@ -204,7 +217,7 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="@color/score_dark_surface"
+        android:background="@color/surface"
         android:elevation="8dp"
         android:paddingHorizontal="16dp"
         android:paddingVertical="8dp"
@@ -223,7 +236,9 @@
                 android:id="@+id/seekbar_progress"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_weight="1" />
+                android:layout_weight="1"
+                android:progressTint="@color/antique_gold"
+                android:thumbTint="@color/antique_gold" />
 
             <TextView
                 android:id="@+id/tv_measure_info"
@@ -231,7 +246,8 @@
                 android:layout_height="wrap_content"
                 android:text="Measure 1"
                 android:textSize="12sp"
-                android:textColor="@color/score_dark_secondary"
+                android:fontFamily="serif"
+                android:textColor="@color/antique_gold_dim"
                 android:paddingStart="8dp" />
 
         </LinearLayout>
@@ -249,17 +265,21 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="■ Stop"
-                android:textColor="@color/score_dark_ink"
+                android:textColor="@color/aged_ivory"
                 android:layout_marginEnd="8dp"
-                app:strokeColor="@color/white_70"
-                style="@style/Widget.Material3.Button.OutlinedButton" />
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_play"
                 android:layout_width="120dp"
                 android:layout_height="wrap_content"
                 android:text="▶ Play"
-                android:layout_marginHorizontal="8dp" />
+                android:textColor="@color/oak_deep"
+                android:textStyle="bold"
+                android:layout_marginHorizontal="8dp"
+                app:backgroundTint="@color/antique_gold"
+                app:cornerRadius="8dp" />
 
         </LinearLayout>
 
@@ -276,7 +296,8 @@
                 android:layout_height="wrap_content"
                 android:text="Speed:"
                 android:textSize="13sp"
-                android:textColor="@color/score_dark_ink"
+                android:textColor="@color/aged_ivory_dim"
+                android:fontFamily="serif"
                 android:paddingEnd="8dp" />
 
             <com.google.android.material.slider.Slider
@@ -287,7 +308,10 @@
                 android:valueFrom="0.25"
                 android:valueTo="2.0"
                 android:value="1.0"
-                android:stepSize="0.05" />
+                android:stepSize="0.05"
+                app:thumbColor="@color/antique_gold"
+                app:trackColorActive="@color/antique_gold"
+                app:trackColorInactive="@color/antique_gold_dim" />
 
             <TextView
                 android:id="@+id/tv_tempo_value"
@@ -295,7 +319,8 @@
                 android:layout_height="wrap_content"
                 android:text="100%"
                 android:textSize="13sp"
-                android:textColor="@color/score_dark_ink"
+                android:textColor="@color/aged_ivory_dim"
+                android:fontFamily="serif"
                 android:gravity="end" />
 
         </LinearLayout>
@@ -313,7 +338,8 @@
                 android:layout_height="wrap_content"
                 android:text="Volume:"
                 android:textSize="13sp"
-                android:textColor="@color/score_dark_ink"
+                android:textColor="@color/aged_ivory_dim"
+                android:fontFamily="serif"
                 android:paddingEnd="8dp" />
 
             <com.google.android.material.slider.Slider
@@ -324,7 +350,10 @@
                 android:valueFrom="0.0"
                 android:valueTo="1.0"
                 android:value="1.0"
-                android:stepSize="0.05" />
+                android:stepSize="0.05"
+                app:thumbColor="@color/antique_gold"
+                app:trackColorActive="@color/antique_gold"
+                app:trackColorInactive="@color/antique_gold_dim" />
 
             <TextView
                 android:id="@+id/tv_volume_value"
@@ -332,7 +361,8 @@
                 android:layout_height="wrap_content"
                 android:text="100%"
                 android:textSize="13sp"
-                android:textColor="@color/score_dark_ink"
+                android:textColor="@color/aged_ivory_dim"
+                android:fontFamily="serif"
                 android:gravity="end" />
 
         </LinearLayout>
@@ -350,7 +380,8 @@
                 android:layout_height="wrap_content"
                 android:text="Transpose:"
                 android:textSize="13sp"
-                android:textColor="@color/score_dark_ink"
+                android:textColor="@color/aged_ivory_dim"
+                android:fontFamily="serif"
                 android:paddingEnd="8dp" />
 
             <com.google.android.material.button.MaterialButton
@@ -359,8 +390,10 @@
                 android:layout_height="36dp"
                 android:text="−"
                 android:textSize="18sp"
+                android:textColor="@color/aged_ivory"
                 android:padding="0dp"
-                style="@style/Widget.Material3.Button.OutlinedButton" />
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
 
             <TextView
                 android:id="@+id/tv_transpose_value"
@@ -368,7 +401,8 @@
                 android:layout_height="wrap_content"
                 android:text="0 st"
                 android:textSize="13sp"
-                android:textColor="@color/score_dark_ink"
+                android:textColor="@color/aged_ivory"
+                android:fontFamily="serif"
                 android:gravity="center" />
 
             <com.google.android.material.button.MaterialButton
@@ -377,8 +411,10 @@
                 android:layout_height="36dp"
                 android:text="+"
                 android:textSize="18sp"
+                android:textColor="@color/aged_ivory"
                 android:padding="0dp"
-                style="@style/Widget.Material3.Button.OutlinedButton" />
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
 
         </LinearLayout>
 

@@ -4,7 +4,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/oak_dark"
+    android:background="@color/background"
     android:fillViewport="true">
 
     <androidx.constraintlayout.widget.ConstraintLayout
@@ -16,7 +16,7 @@
         <View
             android:id="@+id/banner_top"
             android:layout_width="0dp"
-            android:layout_height="6dp"
+            android:layout_height="3dp"
             android:background="@color/antique_gold"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintStart_toStartOf="parent"
@@ -221,7 +221,7 @@
         <!-- Bottom gold rule -->
         <View
             android:layout_width="0dp"
-            android:layout_height="6dp"
+            android:layout_height="3dp"
             android:layout_marginTop="24dp"
             android:background="@color/antique_gold"
             app:layout_constraintTop_toBottomOf="@id/btn_start_stop"

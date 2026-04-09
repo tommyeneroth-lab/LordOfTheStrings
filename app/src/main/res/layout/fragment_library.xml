@@ -9,16 +9,29 @@
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:backgroundTint="@color/library_toolbar_bg"
-        app:elevation="4dp">
+        android:backgroundTint="@color/library_bg"
+        app:elevation="0dp">
+
+        <!-- Gold accent strip -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="3dp"
+            android:background="@color/antique_gold" />
 
         <androidx.appcompat.widget.Toolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/library_toolbar_bg"
-            app:titleTextColor="@color/library_text"
-            app:title="My Score Library" />
+            android:background="@color/library_bg"
+            app:titleTextColor="@color/antique_gold"
+            app:title="My Scores"
+            app:titleTextAppearance="@style/TextAppearance.AppCompat.Title" />
+
+        <!-- Subtle divider under toolbar -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#22C9A84C" />
 
     </com.google.android.material.appbar.AppBarLayout>
 
@@ -26,7 +39,8 @@
         android:id="@+id/recycler_scores"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:paddingVertical="4dp"
+        android:paddingVertical="6dp"
+        android:clipToPadding="false"
         app:layout_behavior="@string/appbar_scrolling_view_behavior" />
 
     <TextView
@@ -37,10 +51,11 @@
         android:text="No scores yet.\nTap + to import a score."
         android:gravity="center"
         android:textSize="16sp"
+        android:fontFamily="serif"
         android:textColor="@color/library_subtext"
         android:visibility="gone" />
 
-    <!-- Record FAB — sits above the import FAB -->
+    <!-- Record FAB -->
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/fab_record"
         android:layout_width="wrap_content"
@@ -89,6 +104,7 @@
             android:text="Recognising Score…"
             android:textColor="@color/aged_ivory"
             android:textSize="18sp"
+            android:fontFamily="serif"
             android:textStyle="bold" />
 
         <TextView

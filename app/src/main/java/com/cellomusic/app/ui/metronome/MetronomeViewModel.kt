@@ -1,13 +1,19 @@
 package com.cellomusic.app.ui.metronome
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import com.cellomusic.app.audio.metronome.MetronomeEngine
+import com.cellomusic.app.data.db.AppDatabase
+import com.cellomusic.app.data.repository.TempoRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 
-class MetronomeViewModel : ViewModel() {
+class MetronomeViewModel(app: Application) : AndroidViewModel(app) {
 
     private val engine = MetronomeEngine()
+    private val tempoRepo = TempoRepository(AppDatabase.getInstance(app).tempoLogDao())
 
     val beatState: StateFlow<MetronomeEngine.BeatState> = engine.beatState
 
@@ -22,6 +28,9 @@ class MetronomeViewModel : ViewModel() {
 
     private val _denominator = MutableStateFlow(4)
     val denominator: StateFlow<Int> = _denominator
+
+    /** Piece name context for tempo logging. */
+    var currentPieceName: String = ""
 
     fun setBpm(bpm: Int) {
         _bpm.value = bpm.coerceIn(20, 300)
@@ -42,6 +51,13 @@ class MetronomeViewModel : ViewModel() {
     fun stop() {
         engine.stop()
         _isPlaying.value = false
+
+        // Log the tempo when stopping (captures the BPM they practiced at)
+        val bpmVal = _bpm.value
+        val piece = currentPieceName.ifEmpty { "Free practice" }
+        viewModelScope.launch {
+            tempoRepo.logTempo(pieceName = piece, bpm = bpmVal)
+        }
     }
 
     override fun onCleared() {

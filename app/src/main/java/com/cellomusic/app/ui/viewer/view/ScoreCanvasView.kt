@@ -9,6 +9,7 @@ import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.animation.DecelerateInterpolator
+import android.view.animation.LinearInterpolator
 import com.cellomusic.app.domain.model.*
 import kotlin.math.abs
 import kotlin.math.min
@@ -227,10 +228,12 @@ class ScoreCanvasView @JvmOverloads constructor(
         val animY = ValueAnimator.ofFloat(translateY, newTranslateY).apply {
             addUpdateListener { translateY = animatedValue as Float; invalidate() }
         }
+        // Use linear interpolation with a longer duration for smooth, continuous
+        // gliding during playback instead of the jerky decelerate-per-note feel.
         scrollAnimator = android.animation.AnimatorSet().apply {
             playTogether(animX, animY)
-            duration = 200
-            interpolator = DecelerateInterpolator()
+            duration = 450
+            interpolator = LinearInterpolator()
             start()
         }
     }

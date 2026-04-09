@@ -57,9 +57,10 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Cancel"
-            android:textColor="@color/white"
+            android:textColor="@color/aged_ivory"
             android:layout_marginEnd="32dp"
-            style="@style/Widget.Material3.Button.OutlinedButton" />
+            app:strokeColor="@color/antique_gold_dim"
+            style="@style/Widget.LOTS.Button" />
 
         <!-- Capture button (circle) -->
         <com.google.android.material.button.MaterialButton

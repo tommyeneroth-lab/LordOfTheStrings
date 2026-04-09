@@ -21,4 +21,13 @@
     <string name="play_reference">Play Reference Tone</string>
     <string name="speed">Speed</string>
     <string name="no_scores">No scores yet.\nTap + to import a score.</string>
+
+    <string-array name="strain_areas">
+        <item>None</item>
+        <item>Neck</item>
+        <item>Left Hand</item>
+        <item>Right Hand</item>
+        <item>Back</item>
+        <item>Shoulder</item>
+    </string-array>
 </resources>

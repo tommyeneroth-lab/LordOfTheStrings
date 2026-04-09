@@ -69,9 +69,9 @@
 
     <fragment
         android:id="@+id/practiceJournalFragment"
-        android:name="com.cellomusic.app.ui.journal.PracticeJournalFragment"
+        android:name="com.cellomusic.app.ui.journal.JournalHostFragment"
         android:label="Journal"
-        tools:layout="@layout/fragment_practice_journal"
+        tools:layout="@layout/fragment_journal_host"
         xmlns:tools="http://schemas.android.com/tools" />
 
     <fragment
