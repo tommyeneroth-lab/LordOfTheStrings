@@ -1,0 +1,534 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background"
+    android:fillViewport="true">
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingBottom="24dp">
+
+        <!-- Level / Points / Streak bar -->
+        <LinearLayout
+            android:id="@+id/layout_gamification"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="@color/surface"
+            android:padding="10dp"
+            android:gravity="center_vertical"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <TextView
+                android:id="@+id/tv_level"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Level 0"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="@color/antique_gold"
+                android:fontFamily="serif" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <TextView
+                android:id="@+id/tv_points"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0 pts"
+                android:textSize="13sp"
+                android:textColor="@color/aged_ivory_dim"
+                android:fontFamily="serif"
+                android:layout_marginEnd="16dp" />
+
+            <TextView
+                android:id="@+id/tv_streak"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🔥 0 day streak"
+                android:textSize="13sp"
+                android:textColor="@color/antique_gold"
+                android:fontFamily="serif" />
+
+        </LinearLayout>
+
+        <!-- Timer panel -->
+        <LinearLayout
+            android:id="@+id/panel_timer"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_oak_panel"
+            android:gravity="center"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginTop="12dp"
+            android:padding="16dp"
+            app:layout_constraintTop_toBottomOf="@id/layout_gamification"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="TODAY'S SESSION"
+                android:textSize="11sp"
+                android:letterSpacing="0.14"
+                android:textColor="@color/antique_gold_dim"
+                android:fontFamily="serif" />
+
+            <TextView
+                android:id="@+id/tv_session_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="00:00"
+                android:textSize="48sp"
+                android:textStyle="bold"
+                android:textColor="@color/aged_ivory"
+                android:fontFamily="serif" />
+
+            <TextView
+                android:id="@+id/tv_piece_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="No piece selected"
+                android:textSize="14sp"
+                android:textColor="@color/antique_gold"
+                android:fontFamily="serif"
+                android:layout_marginTop="4dp" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="12dp">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_timer_start"
+                    android:layout_width="100dp"
+                    android:layout_height="44dp"
+                    android:text="Start"
+                    android:textColor="@color/oak_deep"
+                    android:textStyle="bold"
+                    android:layout_marginEnd="8dp"
+                    app:backgroundTint="@color/antique_gold"
+                    app:cornerRadius="6dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_timer_stop"
+                    android:layout_width="80dp"
+                    android:layout_height="44dp"
+                    android:text="Stop"
+                    android:textColor="@color/aged_ivory"
+                    app:strokeColor="@color/antique_gold_dim"
+                    app:cornerRadius="6dp"
+                    style="@style/Widget.LOTS.Button" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_record"
+                    android:layout_width="wrap_content"
+                    android:layout_height="44dp"
+                    android:text="🎙 Record"
+                    android:textSize="12sp"
+                    android:textColor="@color/aged_ivory"
+                    android:layout_marginStart="8dp"
+                    app:strokeColor="#CC3333"
+                    app:cornerRadius="6dp"
+                    style="@style/Widget.LOTS.Button" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- Category + Piece name -->
+        <LinearLayout
+            android:id="@+id/layout_piece"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginTop="12dp"
+            app:layout_constraintTop_toBottomOf="@id/panel_timer"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <Spinner
+                android:id="@+id/spinner_category"
+                android:layout_width="120dp"
+                android:layout_height="wrap_content"
+                android:backgroundTint="@color/antique_gold_dim"
+                android:popupBackground="@color/background"
+                android:layout_marginEnd="8dp" />
+
+            <android.widget.EditText
+                android:id="@+id/et_piece_name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Piece name"
+                android:textColor="@color/aged_ivory"
+                android:textColorHint="@color/aged_ivory_dim"
+                android:background="@drawable/bg_oak_panel"
+                android:padding="10dp"
+                android:textSize="14sp"
+                android:fontFamily="serif"
+                android:inputType="textCapWords" />
+
+        </LinearLayout>
+
+        <View
+            android:id="@+id/divider1"
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_marginHorizontal="40dp"
+            android:layout_marginTop="12dp"
+            android:background="@color/antique_gold_dim"
+            app:layout_constraintTop_toBottomOf="@id/layout_piece"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <!-- Session Notes -->
+        <TextView
+            android:id="@+id/tv_notes_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Session Notes"
+            android:textSize="12sp"
+            android:letterSpacing="0.10"
+            android:textColor="@color/antique_gold_dim"
+            android:fontFamily="serif"
+            android:layout_marginTop="12dp"
+            app:layout_constraintTop_toBottomOf="@id/divider1"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <android.widget.EditText
+            android:id="@+id/et_session_notes"
+            android:layout_width="0dp"
+            android:layout_height="80dp"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginTop="6dp"
+            android:hint="What did you work on?"
+            android:textColor="@color/aged_ivory"
+            android:textColorHint="@color/aged_ivory_dim"
+            android:background="@drawable/bg_oak_panel"
+            android:padding="12dp"
+            android:textSize="14sp"
+            android:fontFamily="serif"
+            android:gravity="top"
+            android:inputType="textMultiLine|textCapSentences"
+            app:layout_constraintTop_toBottomOf="@id/tv_notes_label"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <!-- Reflections: Challenge + Next time -->
+        <TextView
+            android:id="@+id/tv_reflections_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Reflections"
+            android:textSize="12sp"
+            android:letterSpacing="0.10"
+            android:textColor="@color/antique_gold_dim"
+            android:fontFamily="serif"
+            android:layout_marginTop="12dp"
+            app:layout_constraintTop_toBottomOf="@id/et_session_notes"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <android.widget.EditText
+            android:id="@+id/et_challenge"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginTop="6dp"
+            android:hint="Today's challenge..."
+            android:textColor="@color/aged_ivory"
+            android:textColorHint="@color/aged_ivory_dim"
+            android:background="@drawable/bg_oak_panel"
+            android:padding="10dp"
+            android:textSize="13sp"
+            android:fontFamily="serif"
+            android:inputType="textCapSentences"
+            app:layout_constraintTop_toBottomOf="@id/tv_reflections_label"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <android.widget.EditText
+            android:id="@+id/et_next_time"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginTop="6dp"
+            android:hint="Think about next time..."
+            android:textColor="@color/aged_ivory"
+            android:textColorHint="@color/aged_ivory_dim"
+            android:background="@drawable/bg_oak_panel"
+            android:padding="10dp"
+            android:textSize="13sp"
+            android:fontFamily="serif"
+            android:inputType="textCapSentences"
+            app:layout_constraintTop_toBottomOf="@id/et_challenge"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <View
+            android:id="@+id/divider2"
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_marginHorizontal="40dp"
+            android:layout_marginTop="12dp"
+            android:background="@color/antique_gold_dim"
+            app:layout_constraintTop_toBottomOf="@id/et_next_time"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <!-- Self-Evaluation -->
+        <TextView
+            android:id="@+id/tv_eval_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Self-Evaluation"
+            android:textSize="12sp"
+            android:letterSpacing="0.10"
+            android:textColor="@color/antique_gold_dim"
+            android:fontFamily="serif"
+            android:layout_marginTop="12dp"
+            app:layout_constraintTop_toBottomOf="@id/divider2"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <LinearLayout
+            android:id="@+id/layout_eval"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginTop="6dp"
+            app:layout_constraintTop_toBottomOf="@id/tv_eval_label"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_eval_1"
+                android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
+                android:text="😞" android:textSize="16sp" android:layout_marginHorizontal="2dp"
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_eval_2"
+                android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
+                android:text="😐" android:textSize="16sp" android:layout_marginHorizontal="2dp"
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_eval_3"
+                android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
+                android:text="🙂" android:textSize="16sp" android:layout_marginHorizontal="2dp"
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_eval_4"
+                android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
+                android:text="😊" android:textSize="16sp" android:layout_marginHorizontal="2dp"
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_eval_5"
+                android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
+                android:text="🤩" android:textSize="16sp" android:layout_marginHorizontal="2dp"
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
+
+        </LinearLayout>
+
+        <!-- Cello Health -->
+        <TextView
+            android:id="@+id/tv_health_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Body Strain Level"
+            android:textSize="12sp"
+            android:letterSpacing="0.10"
+            android:textColor="@color/antique_gold_dim"
+            android:fontFamily="serif"
+            android:layout_marginTop="12dp"
+            app:layout_constraintTop_toBottomOf="@id/layout_eval"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <LinearLayout
+            android:id="@+id/layout_strain"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginTop="6dp"
+            app:layout_constraintTop_toBottomOf="@id/tv_health_label"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_strain_0"
+                android:layout_width="0dp" android:layout_height="36dp" android:layout_weight="1"
+                android:text="0" android:textSize="13sp" android:layout_marginHorizontal="2dp"
+                android:textColor="@color/aged_ivory"
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_strain_1"
+                android:layout_width="0dp" android:layout_height="36dp" android:layout_weight="1"
+                android:text="1" android:textSize="13sp" android:layout_marginHorizontal="2dp"
+                android:textColor="@color/aged_ivory"
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_strain_2"
+                android:layout_width="0dp" android:layout_height="36dp" android:layout_weight="1"
+                android:text="2" android:textSize="13sp" android:layout_marginHorizontal="2dp"
+                android:textColor="@color/aged_ivory"
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_strain_3"
+                android:layout_width="0dp" android:layout_height="36dp" android:layout_weight="1"
+                android:text="3" android:textSize="13sp" android:layout_marginHorizontal="2dp"
+                android:textColor="@color/aged_ivory"
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_strain_4"
+                android:layout_width="0dp" android:layout_height="36dp" android:layout_weight="1"
+                android:text="4" android:textSize="13sp" android:layout_marginHorizontal="2dp"
+                android:textColor="@color/aged_ivory"
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_strain_5"
+                android:layout_width="0dp" android:layout_height="36dp" android:layout_weight="1"
+                android:text="5" android:textSize="13sp" android:layout_marginHorizontal="2dp"
+                android:textColor="@color/aged_ivory"
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/layout_strain_area"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginTop="6dp"
+            app:layout_constraintTop_toBottomOf="@id/layout_strain"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Area:"
+                android:textSize="12sp"
+                android:textColor="@color/antique_gold_dim"
+                android:fontFamily="serif"
+                android:paddingEnd="8dp" />
+
+            <Spinner
+                android:id="@+id/spinner_strain_area"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:backgroundTint="@color/antique_gold_dim"
+                android:popupBackground="@color/background"
+                android:entries="@array/strain_areas" />
+
+        </LinearLayout>
+
+        <View
+            android:id="@+id/divider3"
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_marginHorizontal="40dp"
+            android:layout_marginTop="12dp"
+            android:background="@color/antique_gold_dim"
+            app:layout_constraintTop_toBottomOf="@id/layout_strain_area"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <!-- Recent Practice Log -->
+        <TextView
+            android:id="@+id/tv_history_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Recent Practice Log"
+            android:textSize="12sp"
+            android:letterSpacing="0.10"
+            android:textColor="@color/antique_gold_dim"
+            android:fontFamily="serif"
+            android:layout_marginTop="12dp"
+            app:layout_constraintTop_toBottomOf="@id/divider3"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recycler_log"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginTop="8dp"
+            android:nestedScrollingEnabled="false"
+            app:layout_constraintTop_toBottomOf="@id/tv_history_label"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <!-- Save + Export -->
+        <LinearLayout
+            android:id="@+id/layout_actions"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginTop="14dp"
+            app:layout_constraintTop_toBottomOf="@id/recycler_log"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_save_entry"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:text="Save Entry"
+                android:textColor="@color/oak_deep"
+                android:textStyle="bold"
+                android:layout_marginEnd="8dp"
+                app:backgroundTint="@color/antique_gold"
+                app:cornerRadius="6dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_export_pdf"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:text="Export PDF"
+                android:textColor="@color/aged_ivory"
+                app:strokeColor="@color/antique_gold_dim"
+                app:cornerRadius="6dp"
+                style="@style/Widget.LOTS.Button" />
+
+        </LinearLayout>
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</ScrollView>

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- Level + XP Progress -->
+        <com.cellomusic.app.ui.journal.view.LevelProgressView
+            android:id="@+id/level_progress"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginVertical="14dp"
+            android:background="@color/antique_gold_dim" />
+
+        <!-- Calendar Heatmap -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="PRACTICE CALENDAR"
+            android:textSize="11sp"
+            android:letterSpacing="0.12"
+            android:textColor="@color/antique_gold_dim"
+            android:fontFamily="serif"
+            android:paddingBottom="8dp" />
+
+        <com.cellomusic.app.ui.journal.view.CalendarHeatmapView
+            android:id="@+id/calendar_heatmap"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginVertical="14dp"
+            android:background="@color/antique_gold_dim" />
+
+        <!-- Tempo Graph -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="TEMPO PROGRESSION"
+            android:textSize="11sp"
+            android:letterSpacing="0.12"
+            android:textColor="@color/antique_gold_dim"
+            android:fontFamily="serif" />
+
+        <Spinner
+            android:id="@+id/spinner_tempo_piece"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:backgroundTint="@color/antique_gold_dim"
+            android:popupBackground="@color/background" />
+
+        <com.cellomusic.app.ui.journal.view.TempoGraphView
+            android:id="@+id/tempo_graph"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" />
+
+    </LinearLayout>
+
+</ScrollView>

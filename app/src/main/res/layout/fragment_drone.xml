@@ -1,0 +1,292 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background"
+    android:fillViewport="true">
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingBottom="24dp">
+
+        <View
+            android:id="@+id/banner_top"
+            android:layout_width="0dp"
+            android:layout_height="3dp"
+            android:background="@color/antique_gold"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <TextView
+            android:id="@+id/tv_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="✦  DRONE &amp; INTONATION  ✦"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.06"
+            android:textColor="@color/antique_gold"
+            android:fontFamily="serif"
+            android:paddingTop="20dp"
+            app:layout_constraintTop_toBottomOf="@id/banner_top"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <TextView
+            android:id="@+id/tv_subtitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Play a drone to develop relative pitch and steady intonation"
+            android:textSize="12sp"
+            android:textColor="@color/aged_ivory_dim"
+            android:fontFamily="serif"
+            android:gravity="center"
+            android:paddingHorizontal="24dp"
+            android:layout_marginTop="6dp"
+            app:layout_constraintTop_toBottomOf="@id/tv_title"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <View
+            android:id="@+id/divider1"
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_marginHorizontal="40dp"
+            android:layout_marginTop="12dp"
+            android:background="@color/antique_gold_dim"
+            app:layout_constraintTop_toBottomOf="@id/tv_subtitle"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <!-- Tuner gauge (re-used as intonation display) -->
+        <LinearLayout
+            android:id="@+id/panel_gauge"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_oak_panel"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginTop="16dp"
+            android:padding="12dp"
+            app:layout_constraintTop_toBottomOf="@id/divider1"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <com.cellomusic.app.ui.tuner.view.TunerGaugeView
+                android:id="@+id/tuner_gauge"
+                android:layout_width="match_parent"
+                android:layout_height="200dp" />
+
+        </LinearLayout>
+
+        <!-- Smiley face intonation reward -->
+        <TextView
+            android:id="@+id/tv_smiley"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="😐"
+            android:textSize="56sp"
+            android:layout_marginTop="12dp"
+            app:layout_constraintTop_toBottomOf="@id/panel_gauge"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <TextView
+            android:id="@+id/tv_intonation_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Start drone and play a note"
+            android:textSize="13sp"
+            android:textColor="@color/aged_ivory_dim"
+            android:fontFamily="serif"
+            android:layout_marginTop="4dp"
+            app:layout_constraintTop_toBottomOf="@id/tv_smiley"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <!-- Steady pitch timer -->
+        <TextView
+            android:id="@+id/tv_hold_timer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Hold: 0.0s"
+            android:textSize="13sp"
+            android:textColor="@color/antique_gold"
+            android:fontFamily="serif"
+            android:layout_marginTop="2dp"
+            app:layout_constraintTop_toBottomOf="@id/tv_intonation_status"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <View
+            android:id="@+id/divider2"
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_marginHorizontal="40dp"
+            android:layout_marginTop="14dp"
+            android:background="@color/antique_gold_dim"
+            app:layout_constraintTop_toBottomOf="@id/tv_hold_timer"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <!-- String view: which open strings / drone note selection -->
+        <TextView
+            android:id="@+id/tv_drone_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Select Drone Note"
+            android:textSize="12sp"
+            android:letterSpacing="0.10"
+            android:textColor="@color/antique_gold_dim"
+            android:fontFamily="serif"
+            android:layout_marginTop="14dp"
+            app:layout_constraintTop_toBottomOf="@id/divider2"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <!-- Open strings -->
+        <LinearLayout
+            android:id="@+id/layout_strings"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginTop="8dp"
+            app:layout_constraintTop_toBottomOf="@id/tv_drone_label"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_drone_c"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="C2"
+                android:textColor="@color/aged_ivory"
+                android:layout_marginHorizontal="4dp"
+                app:strokeColor="@color/antique_gold_dim"
+                app:backgroundTint="@color/oak_panel"
+                style="@style/Widget.Material3.Button.OutlinedButton" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_drone_g"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="G2"
+                android:textColor="@color/aged_ivory"
+                android:layout_marginHorizontal="4dp"
+                app:strokeColor="@color/antique_gold_dim"
+                app:backgroundTint="@color/oak_panel"
+                style="@style/Widget.Material3.Button.OutlinedButton" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_drone_d"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="D3"
+                android:textColor="@color/aged_ivory"
+                android:layout_marginHorizontal="4dp"
+                app:strokeColor="@color/antique_gold_dim"
+                app:backgroundTint="@color/oak_panel"
+                style="@style/Widget.Material3.Button.OutlinedButton" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_drone_a"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="A3"
+                android:textColor="@color/aged_ivory"
+                android:layout_marginHorizontal="4dp"
+                app:strokeColor="@color/antique_gold_dim"
+                app:backgroundTint="@color/oak_panel"
+                style="@style/Widget.Material3.Button.OutlinedButton" />
+
+        </LinearLayout>
+
+        <!-- Volume control for drone -->
+        <LinearLayout
+            android:id="@+id/layout_volume"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginTop="12dp"
+            app:layout_constraintTop_toBottomOf="@id/layout_strings"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Volume"
+                android:textSize="12sp"
+                android:textColor="@color/antique_gold_dim"
+                android:fontFamily="serif"
+                android:paddingEnd="8dp" />
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/slider_drone_volume"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:valueFrom="0"
+                android:valueTo="100"
+                android:value="70"
+                android:stepSize="1"
+                app:thumbColor="@color/antique_gold"
+                app:trackColor="@color/oak_grain" />
+
+        </LinearLayout>
+
+        <!-- Start/Stop drone -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_start_drone"
+            android:layout_width="200dp"
+            android:layout_height="52dp"
+            android:text="Start Drone"
+            android:textColor="@color/oak_deep"
+            android:textStyle="bold"
+            android:textSize="15sp"
+            android:layout_marginTop="20dp"
+            app:backgroundTint="@color/antique_gold"
+            app:cornerRadius="6dp"
+            app:layout_constraintTop_toBottomOf="@id/layout_volume"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_open_db_meter"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:text="📊 dB Meter"
+            android:textSize="13sp"
+            android:textColor="@color/aged_ivory"
+            android:layout_marginTop="12dp"
+            app:strokeColor="@color/antique_gold_dim"
+            app:backgroundTint="@color/oak_panel"
+            app:cornerRadius="6dp"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            app:layout_constraintTop_toBottomOf="@id/btn_start_drone"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="3dp"
+            android:layout_marginTop="20dp"
+            android:background="@color/antique_gold"
+            app:layout_constraintTop_toBottomOf="@id/btn_open_db_meter"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</ScrollView>
