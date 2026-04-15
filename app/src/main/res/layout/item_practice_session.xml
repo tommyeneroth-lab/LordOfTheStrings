@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Practice session row. The top block (@id/header) always shows the
+  summary info. The inline player (@id/player_strip) is GONE unless
+  this row is expanded by the adapter (tap to expand; rows without
+  a recordingPath never expand).
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#1C1C1C"
+    android:foreground="?android:attr/selectableItemBackground"
+    android:paddingHorizontal="14dp"
+    android:paddingVertical="10dp">
+
+    <LinearLayout
+        android:id="@+id/header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tv_row_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:textColor="@color/aged_ivory"
+            android:fontFamily="serif"
+            android:ellipsize="end"
+            android:maxLines="1" />
+
+        <TextView
+            android:id="@+id/tv_row_info"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:textColor="#C8B89A"
+            android:fontFamily="serif"
+            android:paddingTop="2dp"
+            android:ellipsize="end"
+            android:maxLines="2" />
+    </LinearLayout>
+
+    <!-- Inline player, shown only when this row is expanded -->
+    <LinearLayout
+        android:id="@+id/player_strip"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingTop="10dp"
+        android:visibility="gone">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_row_play"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:insetLeft="0dp"
+            android:insetRight="0dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:padding="0dp"
+            android:text="▶"
+            android:textSize="20sp"
+            android:textColor="@color/antique_gold"
+            app:cornerRadius="22dp"
+            app:strokeColor="@color/antique_gold_dim"
+            app:strokeWidth="1dp" />
+
+        <TextView
+            android:id="@+id/tv_row_time_elapsed"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0:00"
+            android:textSize="12sp"
+            android:textColor="@color/aged_ivory"
+            android:fontFamily="monospace"
+            android:paddingStart="8dp"
+            android:paddingEnd="6dp" />
+
+        <SeekBar
+            android:id="@+id/seek_row_progress"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:progressTint="@color/antique_gold"
+            android:thumbTint="@color/antique_gold"
+            android:progressBackgroundTint="@color/antique_gold_dim" />
+
+        <TextView
+            android:id="@+id/tv_row_time_total"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0:00"
+            android:textSize="12sp"
+            android:textColor="#C8B89A"
+            android:fontFamily="monospace"
+            android:paddingStart="6dp"
+            android:paddingEnd="4dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_row_delete_recording"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:insetLeft="0dp"
+            android:insetRight="0dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:padding="0dp"
+            android:text="🗑"
+            android:textSize="16sp"
+            android:textColor="@color/antique_gold_dim"
+            app:cornerRadius="20dp" />
+    </LinearLayout>
+</LinearLayout>

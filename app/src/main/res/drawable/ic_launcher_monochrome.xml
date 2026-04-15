@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Themed-icon layer for Android 13+ (monochrome). The system strips colour
+  and re-tints this silhouette to match the user's wallpaper-based theme,
+  so every path MUST use a single opaque fill. Negative space in the body
+  (f-holes, waist) is carved with android:fillType="evenOdd".
+
+  Safe zone: the inner 66×66 dp of the 108×108 viewport — everything
+  outside gets masked by whatever shape the launcher applies.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Cello body outline (figure-eight) with f-holes as negative space. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="
+            M54,30
+            C46,30 40,35 40,42
+            C40,47 43,51 47,53
+            C43,55 40,59 40,64
+            C40,72 46,78 54,78
+            C62,78 68,72 68,64
+            C68,59 65,55 61,53
+            C65,51 68,47 68,42
+            C68,35 62,30 54,30 Z
+            M44,49 Q43,51 44,53 Q43,55 44,57 Z
+            M64,49 Q65,51 64,53 Q65,55 64,57 Z" />
+
+    <!-- Strings (4 thin vertical lines). -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+            M50.0,30 L50.6,30 L50.6,78 L50.0,78 Z
+            M52.7,30 L53.3,30 L53.3,78 L52.7,78 Z
+            M54.7,30 L55.3,30 L55.3,78 L54.7,78 Z
+            M57.4,30 L58.0,30 L58.0,78 L57.4,78 Z" />
+
+    <!-- Bridge. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M47,52 L61,52 L60,54.5 L48,54.5 Z" />
+
+    <!-- Scroll / pegbox at top. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+            M50,30 L58,30 L58,22
+            C58,20 55.5,18 54,18
+            C52.5,18 50,20 50,22 Z" />
+
+    <!-- Endpin at bottom. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M53.25,78 L54.75,78 L54.75,86 L53.25,86 Z" />
+
+</vector>
