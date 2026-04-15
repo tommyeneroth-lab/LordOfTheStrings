@@ -193,27 +193,40 @@ class ScoreCanvasView @JvmOverloads constructor(
     }
 
     /**
-     * Smoothly scrolls so the currently played note appears at ~20% from the
-     * left edge of the screen, leaving ~80% of the width to show upcoming notes.
-     * The measure row is kept at ~25% from the top.
+     * Smoothly scrolls so the currently played note appears near the upper-left
+     * corner of the screen, giving maximum read-ahead to upcoming notes.
+     * Works identically in portrait and landscape.
+     *
+     * Vertical position is locked per staff row (system) — it does NOT change
+     * when the pitch of individual notes varies. This prevents distracting
+     * vertical "jumping" while playing within the same line.
+     *
+     * The top margin is large enough to keep fingering labels (which sit above
+     * the staff at ~4.2× STAFF_SPACING) fully visible.
      */
     fun scrollToNote(measureNum: Int, noteIdx: Int) {
         if (isUserTouching) return
         val layout = measureLayouts.firstOrNull { it.measure.number == measureNum } ?: return
         val info = noteLayoutCache[measureNum]
 
-        // Vertical: keep the measure row at 25% from the top
-        val targetScreenY = height * 0.25f
-        val scoreY        = layout.y - STAFF_SPACING
-        val newTranslateY = targetScreenY - scoreY * scaleFactor
+        // Vertical: use the STAFF ROW position (layout.y), not the individual
+        // note's pitch-dependent Y. This keeps the view rock-steady while
+        // playing notes on the same line — only scrolls vertically when the
+        // playback moves to a different system row.
+        //
+        // Top margin must fit fingering labels which are drawn at
+        // staffY - 4.2*STAFF_SPACING, so we leave 5*STAFF_SPACING of room.
+        val targetScreenY = STAFF_SPACING * 5 * scaleFactor
+        val staffRowY = layout.y   // top of this staff system
+        val newTranslateY = targetScreenY - staffRowY * scaleFactor
 
-        // Horizontal: place the current note at ~20% from the left so the
-        // player can read ahead to upcoming notes on the right.
+        // Horizontal: pin the current note near the left edge (8% from edge)
+        // so that almost the entire screen width shows upcoming notes.
         val noteX = if (info != null && noteIdx in info.xPositions.indices)
             info.xPositions[noteIdx]
         else
             layout.x + layout.width / 2f
-        val targetScreenX = width * 0.20f
+        val targetScreenX = width * 0.08f
         val newTranslateX = targetScreenX - noteX * scaleFactor
 
         val dxOk = kotlin.math.abs(newTranslateX - translateX) < 2f
@@ -222,19 +235,39 @@ class ScoreCanvasView @JvmOverloads constructor(
 
         scrollAnimator?.cancel()
 
-        val animX = ValueAnimator.ofFloat(translateX, newTranslateX).apply {
-            addUpdateListener { translateX = animatedValue as Float }
-        }
-        val animY = ValueAnimator.ofFloat(translateY, newTranslateY).apply {
-            addUpdateListener { translateY = animatedValue as Float; invalidate() }
-        }
-        // Use linear interpolation with a longer duration for smooth, continuous
-        // gliding during playback instead of the jerky decelerate-per-note feel.
-        scrollAnimator = android.animation.AnimatorSet().apply {
-            playTogether(animX, animY)
-            duration = 450
-            interpolator = LinearInterpolator()
-            start()
+        // Detect whether we're staying on the same row or jumping to a new one.
+        // A large vertical change means a row change (new system).
+        val dy = kotlin.math.abs(newTranslateY - translateY)
+        val isRowChange = dy > STAFF_SPACING * scaleFactor
+
+        if (isRowChange) {
+            // ── Row change: snap quickly so the player can immediately
+            // read the new line. Short duration, decelerate into place.
+            val animX = ValueAnimator.ofFloat(translateX, newTranslateX).apply {
+                addUpdateListener { translateX = animatedValue as Float }
+            }
+            val animY = ValueAnimator.ofFloat(translateY, newTranslateY).apply {
+                addUpdateListener { translateY = animatedValue as Float; invalidate() }
+            }
+            scrollAnimator = android.animation.AnimatorSet().apply {
+                playTogether(animX, animY)
+                duration = 150
+                interpolator = DecelerateInterpolator(2f)
+                start()
+            }
+        } else {
+            // ── Same row: buttery-smooth horizontal glide. Long duration
+            // with linear interpolation so it feels like the score is
+            // sliding under a reading window.
+            val animX = ValueAnimator.ofFloat(translateX, newTranslateX).apply {
+                addUpdateListener { translateX = animatedValue as Float; invalidate() }
+            }
+            scrollAnimator = android.animation.AnimatorSet().apply {
+                play(animX)
+                duration = 500
+                interpolator = LinearInterpolator()
+                start()
+            }
         }
     }
 
@@ -247,7 +280,11 @@ class ScoreCanvasView @JvmOverloads constructor(
 
     // Note layout cache — populated in drawMeasure, used for tap-to-seek
     // Stores the center-X of each element within the measure.
-    private data class NoteLayoutInfo(val xPositions: FloatArray, val noteCount: Int)
+    private data class NoteLayoutInfo(
+        val xPositions: FloatArray,
+        val yPositions: FloatArray,   // actual note Y (pitch-dependent) in score coords
+        val noteCount: Int
+    )
     private val noteLayoutCache = mutableMapOf<Int, NoteLayoutInfo>() // measureNumber → layout
 
     /** Called when the user taps a note. Arguments: measureNumber, noteIndex. */
@@ -450,12 +487,23 @@ class ScoreCanvasView @JvmOverloads constructor(
             activeTimeSignature = timeToDraw
         }
 
-        // Calculate duration-proportional note positions within the measure
+        // Calculate duration-proportional note positions within the measure.
+        // Uses a hybrid spacing model: purely proportional spacing makes short
+        // notes unreadably cramped at the end of dense measures. Instead we use
+        // a square-root mapping that compresses long notes slightly and gives
+        // short notes more breathing room, while still reflecting duration
+        // relationships. This eliminates the "slowdown at the end" illusion
+        // caused by evenly-spaced notes in a measure that has many fast notes.
         val noteAreaWidth = (x + w - MARGIN_RIGHT / 4 - contentX).coerceAtLeast(20f * dp)
         val elements = m.elements
-        // Weight each element by its duration (quarter = 480 ticks).
-        // Minimum weight of 0.5 so very short notes still have room.
-        val weights = elements.map { maxOf(it.duration.toTicks().toFloat() / 480f, 1.0f) }
+        val weights = elements.map { el ->
+            val rawTicks = el.duration.toTicksWithDots(el.dotCount).toFloat()
+            // Square-root proportional spacing: √(ticks/120) so that a sixteenth
+            // (120 ticks) = 1.0, eighth = 1.41, quarter = 2.0, half = 2.83.
+            // This gives short notes ~50% more space than pure proportional while
+            // still showing relative durations clearly.
+            kotlin.math.sqrt((rawTicks / 120f).coerceAtLeast(0.5f))
+        }
         val totalWeight = weights.sum().coerceAtLeast(1f)
         // Compute center-X for each element
         val noteXPositions = FloatArray(elements.size)
@@ -466,8 +514,22 @@ class ScoreCanvasView @JvmOverloads constructor(
             runningWeight += weights[i]
         }
 
-        // Cache for tap detection
-        noteLayoutCache[m.number] = NoteLayoutInfo(noteXPositions, elements.size)
+        // Compute Y position of each note based on its pitch (for scroll targeting)
+        val noteYPositions = FloatArray(elements.size)
+        for (i in elements.indices) {
+            noteYPositions[i] = when (val el = elements[i]) {
+                is Note -> pitchToStaffY(el.pitch, y, activeClef)
+                is ChordNote -> {
+                    // Use the highest note in the chord (smallest Y = highest on screen)
+                    el.notes.minOfOrNull { pitchToStaffY(it.pitch, y, activeClef) } ?: (y + STAFF_HEIGHT / 2)
+                }
+                is Rest -> y + STAFF_HEIGHT / 2   // center of staff
+                else -> y + STAFF_HEIGHT / 2
+            }
+        }
+
+        // Cache for tap detection and scroll targeting
+        noteLayoutCache[m.number] = NoteLayoutInfo(noteXPositions, noteYPositions, elements.size)
 
         // Draw note-level cursor — semi-transparent box around the active note column
         if (m.number == currentMeasureHighlight && elements.isNotEmpty()) {

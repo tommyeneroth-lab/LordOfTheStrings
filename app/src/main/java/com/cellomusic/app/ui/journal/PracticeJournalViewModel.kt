@@ -8,14 +8,26 @@ import com.cellomusic.app.data.db.AppDatabase
 import com.cellomusic.app.data.db.entity.PracticeSessionEntity
 import com.cellomusic.app.data.db.entity.GamificationEntity
 import com.cellomusic.app.data.repository.*
+import com.cellomusic.app.domain.achievement.AchievementCatalog
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
-/** Event for one-shot UI triggers (fireworks, toasts). */
+/** Event for one-shot UI triggers (fireworks, toasts, XP bursts). */
 sealed class JournalEvent {
     data class LevelUp(val newLevel: Int) : JournalEvent()
     data class GoalCompleted(val goalIds: List<Long>) : JournalEvent()
-    object SessionSaved : JournalEvent()
+    /**
+     * Fired on every successful save. Carries [xpEarned] (base + any bonuses
+     * awarded on this save) and a human-readable [subText] for the XP burst
+     * — e.g. empty string, "Day 7!", "Streak saved!".
+     */
+    data class SessionSaved(val xpEarned: Int, val subText: String) : JournalEvent()
+    /** Streak advanced today; subtext describes how (first session today, milestone, etc.). */
+    data class StreakAdvanced(val newStreak: Int, val isMilestone: Boolean) : JournalEvent()
+    /** Two-day grace kicked in — surfaces the "streak saver" feature to the user. */
+    data class StreakSaved(val newStreak: Int) : JournalEvent()
+    /** One or more achievements unlocked on this save. */
+    data class AchievementsUnlocked(val defs: List<AchievementCatalog.Def>) : JournalEvent()
 }
 
 class PracticeJournalViewModel(app: Application) : AndroidViewModel(app) {
@@ -25,6 +37,11 @@ class PracticeJournalViewModel(app: Application) : AndroidViewModel(app) {
     private val gamificationRepo = GamificationRepository(db.gamificationDao())
     private val goalRepo = GoalRepository(db.practiceGoalDao(), db.practiceSessionDao())
     private val healthRepo = HealthRepository(db.healthLogDao())
+    private val achievementRepo = AchievementRepository(
+        db.achievementDao(),
+        db.practiceSessionDao(),
+        db.gamificationDao()
+    )
 
     val recentSessions: StateFlow<List<PracticeSessionEntity>> =
         journalRepo.getRecentSessions(14)
@@ -41,6 +58,16 @@ class PracticeJournalViewModel(app: Application) : AndroidViewModel(app) {
     private var recorder: RecordingManager? = null
     private val _isRecording = MutableStateFlow(false)
     val isRecording: StateFlow<Boolean> = _isRecording
+
+    /**
+     * Path of the most-recently completed recording, held until the user
+     * either saves the session (we attach it) or starts a new recording
+     * (we discard this one and cut a fresh file). This is what made the
+     * "record then stop then save" flow drop the audio silently — we used
+     * to throw the path away as soon as Stop Rec was pressed.
+     */
+    private val _pendingRecordingPath = MutableStateFlow<String?>(null)
+    val pendingRecordingPath: StateFlow<String?> = _pendingRecordingPath
 
     init {
         viewModelScope.launch {
@@ -60,8 +87,12 @@ class PracticeJournalViewModel(app: Application) : AndroidViewModel(app) {
         strainLevel: Int = 0,
         strainArea: String = ""
     ) = viewModelScope.launch {
-        // Stop recording if active, get path
-        val recordingPath = if (_isRecording.value) stopRecording() else null
+        // If recording is still rolling when the user presses Save, stop
+        // it now so the file finalizes and we can attach it. Otherwise use
+        // whatever recording was completed earlier and is waiting in the
+        // pending slot.
+        if (_isRecording.value) stopRecording()
+        val recordingPath = _pendingRecordingPath.value
 
         // Save session
         val session = journalRepo.saveSession(
@@ -85,11 +116,40 @@ class PracticeJournalViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
 
-        // Award points + check level up
+        // Award base points (10 × minutes) and check level-up.
+        val basePoints = durationMin * 10
         val leveledUp = gamificationRepo.addSessionPoints(durationMin)
-        gamificationRepo.updateStreak()
 
-        // Check goal completion
+        // Update streak with structured result so UI can surface milestones
+        // and the "streak saved!" grace-day feature.
+        val streakResult = gamificationRepo.updateStreak()
+
+        // Emit streak-specific UI events and award milestone bonuses.
+        var streakBonus = 0
+        var xpSubText = ""
+        when (streakResult) {
+            is StreakResult.Continued -> {
+                _events.emit(JournalEvent.StreakAdvanced(streakResult.newStreak, streakResult.isMilestone))
+                if (streakResult.isMilestone) {
+                    streakBonus = gamificationRepo.addStreakMilestoneBonus(streakResult.newStreak)
+                    xpSubText = "Day ${streakResult.newStreak}!"
+                }
+            }
+            is StreakResult.Saved -> {
+                _events.emit(JournalEvent.StreakSaved(streakResult.newStreak))
+                xpSubText = "Streak saved!"
+                if (streakResult.isMilestone) {
+                    streakBonus = gamificationRepo.addStreakMilestoneBonus(streakResult.newStreak)
+                }
+            }
+            is StreakResult.Started -> {
+                _events.emit(JournalEvent.StreakAdvanced(streakResult.newStreak, false))
+            }
+            is StreakResult.SameDay -> { /* nothing special — already counted */ }
+            is StreakResult.Reset   -> { /* nothing special */ }
+        }
+
+        // Check goal completion (may award bonus + level up again).
         val completedGoals = goalRepo.refreshGoalProgress()
         for (goalId in completedGoals) {
             val bonusLevelUp = gamificationRepo.addGoalBonus()
@@ -98,23 +158,60 @@ class PracticeJournalViewModel(app: Application) : AndroidViewModel(app) {
                 _events.emit(JournalEvent.LevelUp(profile?.currentLevel ?: 0))
             }
         }
-
         if (completedGoals.isNotEmpty()) {
             _events.emit(JournalEvent.GoalCompleted(completedGoals))
         }
-
         if (leveledUp) {
             val profile = gamification.value
             _events.emit(JournalEvent.LevelUp(profile?.currentLevel ?: 0))
         }
 
-        _events.emit(JournalEvent.SessionSaved)
+        // Evaluate achievements AFTER all stats have been updated for the
+        // new session, so streak-based and count-based achievements see the
+        // post-save state.
+        val unlocked = try {
+            achievementRepo.evaluateAfterSession(session.timestampMs)
+        } catch (_: Throwable) {
+            emptyList()
+        }
+        if (unlocked.isNotEmpty()) {
+            _events.emit(JournalEvent.AchievementsUnlocked(unlocked))
+        }
+
+        // Pending recording has now been attached — clear it so the next
+        // session starts with a clean slate.
+        _pendingRecordingPath.value = null
+
+        // Finally, emit the SessionSaved event for the XP burst.
+        val totalXp = basePoints + streakBonus
+        _events.emit(JournalEvent.SessionSaved(xpEarned = totalXp, subText = xpSubText))
+    }
+
+    /** Clear the recordingPath on a session (file missing, or user tapped 🗑). */
+    fun clearRecordingPath(session: PracticeSessionEntity) = viewModelScope.launch {
+        journalRepo.clearRecordingPath(session)
+    }
+
+    /** Delete the recording file on disk and clear the DB pointer. */
+    fun deleteRecording(session: PracticeSessionEntity) = viewModelScope.launch {
+        val path = session.recordingPath
+        if (path != null) {
+            try { java.io.File(path).delete() } catch (_: Throwable) {}
+        }
+        journalRepo.clearRecordingPath(session)
     }
 
     // --- Recording ---
 
     fun startRecording() {
         if (_isRecording.value) return
+        // Starting a new take supersedes anything the user recorded but
+        // hadn't saved yet — delete that file so we don't accumulate
+        // orphaned .m4a's on disk.
+        _pendingRecordingPath.value?.let { old ->
+            try { java.io.File(old).delete() } catch (_: Throwable) {}
+        }
+        _pendingRecordingPath.value = null
         val mgr = RecordingManager(getApplication())
         mgr.start("practice_clip")
         recorder = mgr
@@ -127,6 +224,8 @@ class PracticeJournalViewModel(app: Application) : AndroidViewModel(app) {
         mgr.stop()
         recorder = null
         _isRecording.value = false
+        // Hold the finished file so saveSession() can attach it.
+        _pendingRecordingPath.value = path
         return path
     }
 

@@ -69,19 +69,82 @@ class MidiScoreEncoder {
 
             for (measure in flatMeasures) {
                 measureStartTicks[measure.number] = absoluteTick
-                // Record note positions for cursor tracking
-                for ((elemIdx, element) in measure.elements.withIndex()) {
-                    val elemStartTick = absoluteTick + when (element) {
-                        is Note -> element.startTick.toLong()
-                        is ChordNote -> element.startTick.toLong()
-                        else -> continue
-                    }
-                    noteTickToPositionMap.putIfAbsent(elemStartTick, Pair(measure.number, elemIdx))
-                }
 
                 // Handle clef/time/key changes (no audio effect, tracked for rendering)
                 measure.timeSignature?.let { currentTimeSignature = it }
                 val ticksPerMeasure = currentTimeSignature.ticksPerMeasure(TICKS_PER_QUARTER)
+
+                // ── Derive per-element startTicks from sequential duration ──
+                // The renderer (ScoreCanvasView) ignores the stored startTick and
+                // lays notes out purely by duration in list order.  Historically the
+                // encoder used the stored startTick, which diverged after user edits
+                // (deleteElement leaves gaps) or imperfect OMR output.  Rebuild
+                // startTicks here so audio matches what the user sees.
+                val seqStart = IntArray(measure.elements.size)
+                run {
+                    var acc = 0
+                    for ((i, el) in measure.elements.withIndex()) {
+                        seqStart[i] = acc
+                        acc += when (el) {
+                            is Note      -> el.duration.toTicksWithDots(el.dotCount, TICKS_PER_QUARTER)
+                            is ChordNote -> el.duration.toTicksWithDots(el.dotCount, TICKS_PER_QUARTER)
+                            is Rest      -> el.duration.toTicksWithDots(el.dotCount, TICKS_PER_QUARTER)
+                            else         -> 0
+                        }
+                    }
+                }
+                val rawExtentForCursor = measure.elements.indices.maxOfOrNull { i ->
+                    val d = when (val el = measure.elements[i]) {
+                        is Note      -> el.duration.toTicksWithDots(el.dotCount, TICKS_PER_QUARTER)
+                        is ChordNote -> el.duration.toTicksWithDots(el.dotCount, TICKS_PER_QUARTER)
+                        is Rest      -> el.duration.toTicksWithDots(el.dotCount, TICKS_PER_QUARTER)
+                        else         -> 0
+                    }
+                    seqStart[i] + d
+                } ?: ticksPerMeasure
+                // Determine how many "virtual measures" this one should occupy.
+                // When OMR merges multiple real measures into one detected measure
+                // (common when barlines are suppressed under title/header text),
+                // the raw extent is ≥1.5× ticksPerMeasure.  Rather than compressing
+                // the whole chunk into one measure of tempo-time (which plays 2–3×
+                // too fast), we advance absoluteTick by the *actual* number of
+                // measures' worth of content.
+                val noteCountForScaling = measure.elements.count { it is Note || it is ChordNote }
+                val virtualMeasureCount = when {
+                    rawExtentForCursor <= 0 -> 1
+                    rawExtentForCursor >= (ticksPerMeasure * 1.5).toInt() ->
+                        // Round to nearest whole measure count (min 2)
+                        ((rawExtentForCursor + ticksPerMeasure / 2) / ticksPerMeasure).coerceAtLeast(2)
+                    else -> 1
+                }
+                val effectiveMeasureTicks = (virtualMeasureCount * ticksPerMeasure).toLong()
+
+                // Scale content to fit exactly into effectiveMeasureTicks.
+                //  • Overfull relative to effective: compress (small amount, e.g. 4080→3840)
+                //  • Underfull, substantial: stretch up to fit (avoids "fast then silence")
+                //  • Otherwise: play as-is (protects short pickups and legit partial measures)
+                val cursorTimeScale = when {
+                    rawExtentForCursor <= 0 -> 1.0
+                    rawExtentForCursor > effectiveMeasureTicks ->
+                        effectiveMeasureTicks.toDouble() / rawExtentForCursor.toDouble()
+                    virtualMeasureCount == 1 &&
+                        rawExtentForCursor < ticksPerMeasure &&
+                        rawExtentForCursor * 3 >= ticksPerMeasure &&
+                        noteCountForScaling >= 3 ->
+                        ticksPerMeasure.toDouble() / rawExtentForCursor.toDouble()
+                    else -> 1.0
+                }
+
+                // Record note positions for cursor tracking (using scaled ticks)
+                for ((elemIdx, element) in measure.elements.withIndex()) {
+                    when (element) {
+                        is Note, is ChordNote -> {
+                            val elemStartTick = absoluteTick + (seqStart[elemIdx] * cursorTimeScale).toLong()
+                            noteTickToPositionMap.putIfAbsent(elemStartTick, Pair(measure.number, elemIdx))
+                        }
+                        else -> {}
+                    }
+                }
 
                 // Handle tempo
                 measure.tempo?.let { tempoMark ->
@@ -123,8 +186,21 @@ class MidiScoreEncoder {
                     }
                 }
 
-                // Encode notes
-                for (element in measure.elements) {
+                // ── Measure-content normalization ─────────────────────────
+                // OMR (and sometimes malformed MusicXML) can produce measures
+                // whose note durations add up to more than the time signature
+                // allows. When that happens, playback progressively slows down
+                // because each overfull measure stretches the absolute timeline.
+                //
+                // Fix: proportionally rescale every note's startTick and duration
+                // so the measure always plays in exactly ticksPerMeasure ticks.
+                // cursorTimeScale was already computed above for cursor tracking;
+                // reuse it here for the audio events.
+                val timeScale = cursorTimeScale
+
+                // Encode notes — using seqStart (from accumulated durations) + timeScale
+                for ((elemIdx, element) in measure.elements.withIndex()) {
+                    val localStart = seqStart[elemIdx]
                     when (element) {
                         is Note -> {
                             // Handle technique changes in note
@@ -134,7 +210,7 @@ class MidiScoreEncoder {
                                         if (currentProgram != PIZZICATO_PROGRAM) {
                                             currentProgram = PIZZICATO_PROGRAM
                                             events.add(MidiEvent(
-                                                absoluteTick + element.startTick,
+                                                absoluteTick + (localStart * timeScale).toLong(),
                                                 MidiEventType.PROGRAM_CHANGE,
                                                 MIDI_CHANNEL, PIZZICATO_PROGRAM, 0
                                             ))
@@ -144,7 +220,7 @@ class MidiScoreEncoder {
                                         if (currentProgram != CELLO_PROGRAM) {
                                             currentProgram = CELLO_PROGRAM
                                             events.add(MidiEvent(
-                                                absoluteTick + element.startTick,
+                                                absoluteTick + (localStart * timeScale).toLong(),
                                                 MidiEventType.PROGRAM_CHANGE,
                                                 MIDI_CHANNEL, CELLO_PROGRAM, 0
                                             ))
@@ -157,16 +233,18 @@ class MidiScoreEncoder {
                             // Skip tied notes (continuation)
                             if (element.tie == TieType.STOP || element.tie == TieType.CONTINUE) continue
 
-                            val noteOn = absoluteTick + element.startTick
+                            val scaledStart = (localStart * timeScale).toLong()
+                            val noteOn = absoluteTick + scaledStart
                             val midiNote = (element.pitch.toMidiNote() + transposeSteps).coerceIn(0, 127)
-                            val durationTicks = element.duration.toTicksWithDots(element.dotCount, TICKS_PER_QUARTER)
-                            val noteOff = noteOn + calculateNoteOffTick(durationTicks, element)
+                            val rawDuration = element.duration.toTicksWithDots(element.dotCount, TICKS_PER_QUARTER)
+                            val scaledDuration = (rawDuration * timeScale).toInt().coerceAtLeast(1)
+                            val noteOff = noteOn + calculateNoteOffTick(scaledDuration, element)
 
                             val velocity = calculateVelocity(
                                 element, currentDynamicVelocity, activeTechnicalState
                             )
 
-                            if (midiNote in 24..108) { // Extended range with transpose headroom
+                            if (midiNote in 24..108) {
                                 events.add(MidiEvent(noteOn, MidiEventType.NOTE_ON,
                                     MIDI_CHANNEL, midiNote, velocity))
                                 events.add(MidiEvent(noteOff, MidiEventType.NOTE_OFF,
@@ -177,10 +255,12 @@ class MidiScoreEncoder {
                         is ChordNote -> {
                             for (note in element.notes) {
                                 if (note.tie == TieType.STOP || note.tie == TieType.CONTINUE) continue
-                                val noteOn = absoluteTick + element.startTick
+                                val scaledStart = (localStart * timeScale).toLong()
+                                val noteOn = absoluteTick + scaledStart
                                 val midiNote = (note.pitch.toMidiNote() + transposeSteps).coerceIn(0, 127)
-                                val durationTicks = element.duration.toTicksWithDots(element.dotCount, TICKS_PER_QUARTER)
-                                val noteOff = noteOn + calculateNoteOffTick(durationTicks, note)
+                                val rawDuration = element.duration.toTicksWithDots(element.dotCount, TICKS_PER_QUARTER)
+                                val scaledDuration = (rawDuration * timeScale).toInt().coerceAtLeast(1)
+                                val noteOff = noteOn + calculateNoteOffTick(scaledDuration, note)
                                 val velocity = calculateVelocity(note, currentDynamicVelocity, activeTechnicalState)
                                 events.add(MidiEvent(noteOn, MidiEventType.NOTE_ON, MIDI_CHANNEL, midiNote, velocity))
                                 events.add(MidiEvent(noteOff, MidiEventType.NOTE_OFF, MIDI_CHANNEL, midiNote, 0))
@@ -191,27 +271,28 @@ class MidiScoreEncoder {
                     }
                 }
 
-                // Advance by the larger of: the time-signature measure length OR the actual
-                // end tick of the last note in the measure.  This prevents notes from being
-                // crammed into a shorter window than their durations require (which causes
-                // out-of-order playback when OMR over-fills a measure).
-                val lastNoteTick = measure.elements.maxOfOrNull { el ->
-                    when (el) {
-                        is Note -> el.startTick + el.duration.toTicksWithDots(el.dotCount, TICKS_PER_QUARTER)
-                        is ChordNote -> el.startTick + el.duration.toTicksWithDots(el.dotCount, TICKS_PER_QUARTER)
-                        is Rest -> el.startTick + el.duration.toTicksWithDots(el.dotCount, TICKS_PER_QUARTER)
-                        else -> 0
-                    }
-                } ?: 0
-                absoluteTick += maxOf(ticksPerMeasure, lastNoteTick)
+                // Advance by effectiveMeasureTicks — which is ticksPerMeasure
+                // for normal measures, and a whole-number multiple when OMR
+                // merged multiple real measures into this detected measure.
+                absoluteTick += effectiveMeasureTicks
             }
 
             // All notes off at end
             events.add(MidiEvent(absoluteTick, MidiEventType.CONTROL_CHANGE, MIDI_CHANNEL, 123, 0))
 
+            // Ensure tempoMap has an entry at tick 0 so tempoMultiplier takes
+            // effect even when the score has no explicit tempo markings
+            // (common for OMR-imported scores) or when the first tempo tag is
+            // on a later measure.  Without this, ticksToMs() uses DEFAULT_BPM
+            // unmodified and the BPM slider has no audible effect.
+            if (tempoMap.isEmpty() || tempoMap.first().absoluteTick != 0L) {
+                val seedBpm = (DEFAULT_BPM * tempoMultiplier).toInt().coerceIn(1, 300)
+                tempoMap.add(0, TempoEvent(0L, seedBpm))
+            }
+
             return EncodeResult(
                 events = events.sortedBy { it.absoluteTick },
-                tempoMap = tempoMap.ifEmpty { listOf(TempoEvent(0L, DEFAULT_BPM)) },
+                tempoMap = tempoMap,
                 totalTicks = absoluteTick,
                 measureStartTicks = measureStartTicks,
                 noteTickToPosition = noteTickToPositionMap,

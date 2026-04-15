@@ -51,6 +51,16 @@ class JournalRepository(private val sessionDao: PracticeSessionDao) {
 
     suspend fun deleteSession(session: PracticeSessionEntity) = sessionDao.delete(session)
 
+    /**
+     * Strip the recordingPath from a session — used when playback discovers
+     * the .m4a file is gone (deleted externally, cache cleared, etc.) so the
+     * row no longer advertises a recording that isn't there.
+     */
+    suspend fun clearRecordingPath(session: PracticeSessionEntity) {
+        if (session.recordingPath == null) return
+        sessionDao.update(session.copy(recordingPath = null))
+    }
+
     suspend fun getTotalMinutesInRange(startMs: Long, endMs: Long): Int =
         sessionDao.getTotalMinutesInRange(startMs, endMs) ?: 0
 
@@ -59,4 +69,13 @@ class JournalRepository(private val sessionDao: PracticeSessionDao) {
 
     suspend fun getTotalMinutesInRangeByCategory(startMs: Long, endMs: Long, category: String): Int =
         sessionDao.getTotalMinutesInRangeByCategory(startMs, endMs, category) ?: 0
+
+    suspend fun getCategoryTotals(startMs: Long, endMs: Long) =
+        sessionDao.getCategoryTotals(startMs, endMs)
+
+    suspend fun getAvgSelfEvalInRange(startMs: Long, endMs: Long): Float =
+        sessionDao.getAvgSelfEvalInRange(startMs, endMs) ?: 0f
+
+    suspend fun countSessionsInRange(startMs: Long, endMs: Long): Int =
+        sessionDao.countSessionsInRange(startMs, endMs)
 }

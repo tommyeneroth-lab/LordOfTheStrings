@@ -5,6 +5,7 @@ import androidx.room.*
 import com.cellomusic.app.data.db.dao.*
 import com.cellomusic.app.data.db.entity.*
 import com.cellomusic.app.data.db.migration.MIGRATION_3_4
+import com.cellomusic.app.data.db.migration.MIGRATION_4_5
 import com.cellomusic.app.data.db.migration.migrateJsonJournal
 
 @Database(
@@ -15,9 +16,10 @@ import com.cellomusic.app.data.db.migration.migrateJsonJournal
         GamificationEntity::class,
         TempoLogEntity::class,
         MeasurePracticeEntity::class,
-        HealthLogEntity::class
+        HealthLogEntity::class,
+        AchievementEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -28,6 +30,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun tempoLogDao(): TempoLogDao
     abstract fun measurePracticeDao(): MeasurePracticeDao
     abstract fun healthLogDao(): HealthLogDao
+    abstract fun achievementDao(): AchievementDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -40,7 +43,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "cello_music_db"
                 )
-                .addMigrations(MIGRATION_3_4)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
                 .fallbackToDestructiveMigration()
                 .addCallback(object : Callback() {
                     override fun onOpen(db: androidx.sqlite.db.SupportSQLiteDatabase) {

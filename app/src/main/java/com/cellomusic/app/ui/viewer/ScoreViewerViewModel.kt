@@ -1,9 +1,16 @@
 package com.cellomusic.app.ui.viewer
 
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.cellomusic.app.BuildConfig
+import com.cellomusic.app.audio.playback.MidiScoreEncoder
 import com.cellomusic.app.audio.playback.ScorePlayer
 import com.cellomusic.app.data.repository.ScoreRepository
 import com.cellomusic.app.domain.CelloFingeringAdvisor
@@ -42,6 +49,9 @@ class ScoreViewerViewModel : ViewModel() {
         }
         viewModelScope.launch {
             scorePlayer.currentNotePosition.collect { _currentNotePosition.value = it }
+        }
+        viewModelScope.launch {
+            scorePlayer.loopPassCount.collect { _loopPassCount.value = it }
         }
 
         viewModelScope.launch {
@@ -340,7 +350,115 @@ class ScoreViewerViewModel : ViewModel() {
         }
     }
 
+    // ── Loop/Practice mode state ────────────────────────────────────────────
+    private val _loopEnabled = MutableStateFlow(false)
+    val loopEnabled: StateFlow<Boolean> = _loopEnabled
+
+    private val _loopStartMeasure = MutableStateFlow(-1)
+    val loopStartMeasure: StateFlow<Int> = _loopStartMeasure
+
+    private val _loopEndMeasure = MutableStateFlow(-1)
+    val loopEndMeasure: StateFlow<Int> = _loopEndMeasure
+
+    private val _countInEnabled = MutableStateFlow(false)
+    val countInEnabled: StateFlow<Boolean> = _countInEnabled
+
+    private val _tempoRampEnabled = MutableStateFlow(false)
+    val tempoRampEnabled: StateFlow<Boolean> = _tempoRampEnabled
+
+    private val _tempoRampStep = MutableStateFlow(0.05f)
+    val tempoRampStep: StateFlow<Float> = _tempoRampStep
+
+    private val _loopPassCount = MutableStateFlow(0)
+    val loopPassCount: StateFlow<Int> = _loopPassCount
+
+    /**
+     * Returns the score's base BPM — the first tempo marking we can find on the
+     * first part, or MidiScoreEncoder.DEFAULT_BPM (120) if none is set.
+     * Used by the tempo slider to convert between BPM and the engine's
+     * multiplier representation.
+     */
+    fun scoreBaseBpm(): Int {
+        val s = _score.value ?: return MidiScoreEncoder.DEFAULT_BPM
+        return s.parts.firstOrNull()
+            ?.measures
+            ?.firstNotNullOfOrNull { it.tempo?.bpm }
+            ?: MidiScoreEncoder.DEFAULT_BPM
+    }
+
+    /**
+     * Dumps the current score's measure structure to Downloads/cellomusic_score_debug.txt.
+     * No-op in release builds — gated on BuildConfig.DEBUG so it never ships to end users.
+     * Kept available for future OMR / playback diagnostics.
+     */
+    private fun dumpScoreDebug(context: Context) {
+        if (!BuildConfig.DEBUG) return
+        val s = _score.value ?: return
+        val sb = StringBuilder()
+        sb.appendLine("=== Score Debug Dump ===")
+        sb.appendLine("Title: ${s.title}")
+        sb.appendLine("Parts: ${s.parts.size}")
+        val part = s.parts.firstOrNull() ?: return
+        sb.appendLine("Measures: ${part.measures.size}")
+        sb.appendLine()
+        sb.appendLine("# | notes | chord | rest | totalTicks | details")
+        sb.appendLine("--+-------+-------+------+------------+--------")
+        for (m in part.measures) {
+            var notes = 0; var chords = 0; var rests = 0; var totalTicks = 0
+            val details = StringBuilder()
+            for (el in m.elements) {
+                when (el) {
+                    is Note -> {
+                        notes++
+                        val t = el.duration.toTicksWithDots(el.dotCount)
+                        totalTicks += t
+                        details.append("${el.duration.type.name.take(3)}${if (el.dotCount > 0) ".".repeat(el.dotCount) else ""}(${t}) ")
+                    }
+                    is ChordNote -> {
+                        chords++
+                        val t = el.duration.toTicksWithDots(el.dotCount)
+                        totalTicks += t
+                        details.append("Ch${el.duration.type.name.take(3)}(${t}) ")
+                    }
+                    is Rest -> {
+                        rests++
+                        val t = el.duration.toTicksWithDots(el.dotCount)
+                        totalTicks += t
+                        details.append("R${el.duration.type.name.take(3)}(${t}) ")
+                    }
+                    else -> {}
+                }
+            }
+            sb.appendLine("${m.number.toString().padEnd(2)}| ${notes.toString().padEnd(5)} | ${chords.toString().padEnd(5)} | ${rests.toString().padEnd(4)} | ${totalTicks.toString().padEnd(10)} | ${details.toString().trim()}")
+        }
+        val text = sb.toString()
+        Log.i("CelloDebug", text)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, "cellomusic_score_debug.txt")
+                    put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+                    put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                }
+                val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                uri?.let {
+                    context.contentResolver.openOutputStream(it)?.use { os -> os.write(text.toByteArray()) }
+                }
+            } else {
+                val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                java.io.File(dir, "cellomusic_score_debug.txt").writeText(text)
+            }
+        } catch (e: Exception) {
+            Log.e("CelloDebug", "Failed to write debug dump", e)
+        }
+    }
+
     fun play() = player?.play()
+    /** Call this with a Context to dump the current score before playing. */
+    fun playWithDebugDump(context: Context) {
+        dumpScoreDebug(context)
+        player?.play()
+    }
     fun pause() = player?.pause()
     fun stop() = player?.stop()
     fun seekToMeasure(measure: Int) = player?.seekToMeasure(measure)
@@ -350,6 +468,48 @@ class ScoreViewerViewModel : ViewModel() {
     fun setTranspose(steps: Int) {
         _transposeSteps.value = steps
         player?.setTranspose(steps)
+    }
+
+    /** Set loop start to the currently selected measure, or to a specific measure. */
+    fun setLoopStart(measure: Int = -1) {
+        val m = if (measure > 0) measure else _selectedNotePos.value?.first ?: _currentMeasure.value
+        _loopStartMeasure.value = m
+        player?.setLoopRange(m, _loopEndMeasure.value)
+    }
+
+    fun setLoopEnd(measure: Int = -1) {
+        val m = if (measure > 0) measure else _selectedNotePos.value?.first ?: _currentMeasure.value
+        _loopEndMeasure.value = m
+        player?.setLoopRange(_loopStartMeasure.value, m)
+    }
+
+    fun toggleLoop() {
+        val newVal = !_loopEnabled.value
+        _loopEnabled.value = newVal
+        player?.setLoopEnabled(newVal)
+        if (!newVal) {
+            _loopStartMeasure.value = -1
+            _loopEndMeasure.value = -1
+            _loopPassCount.value = 0
+            player?.clearLoop()
+        }
+    }
+
+    fun toggleCountIn() {
+        val newVal = !_countInEnabled.value
+        _countInEnabled.value = newVal
+        player?.setCountInEnabled(newVal)
+    }
+
+    fun toggleTempoRamp() {
+        val newVal = !_tempoRampEnabled.value
+        _tempoRampEnabled.value = newVal
+        player?.setTempoRamp(newVal, _tempoRampStep.value)
+    }
+
+    fun setTempoRampStepValue(step: Float) {
+        _tempoRampStep.value = step
+        player?.setTempoRamp(_tempoRampEnabled.value, step)
     }
 
     fun exportScore(context: Context, format: String) = viewModelScope.launch {

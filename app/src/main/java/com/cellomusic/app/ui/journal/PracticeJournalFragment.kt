@@ -24,10 +24,16 @@ import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.cellomusic.app.databinding.FragmentPracticeJournalBinding
+import com.cellomusic.app.data.db.entity.PracticeSessionEntity
 import com.cellomusic.app.ui.journal.view.FireworksOverlayView
+import com.cellomusic.app.ui.journal.view.XpBurstView
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -56,7 +62,15 @@ class PracticeJournalFragment : Fragment() {
     private val strainAreas = arrayOf("", "NECK", "LEFT_HAND", "RIGHT_HAND", "BACK", "SHOULDER")
     private val strainAreaLabels = arrayOf("None", "Neck", "Left Hand", "Right Hand", "Back", "Shoulder")
 
+    // ── Inline-player state ─────────────────────────────────────────
     private var mediaPlayer: MediaPlayer? = null
+    /** Session whose recording is currently loaded into [mediaPlayer]. */
+    private var playingSession: PracticeSessionEntity? = null
+    /** True once prepareAsync has completed; we block play/seek until then. */
+    private var playerPrepared = false
+    /** Background ticker pushing position to the adapter. */
+    private var positionJob: Job? = null
+    private lateinit var logAdapter: PracticeLogAdapter
 
     private val tickRunnable = object : Runnable {
         override fun run() {
@@ -134,8 +148,28 @@ class PracticeJournalFragment : Fragment() {
 
         viewLifecycleOwner.lifecycleScope.launch {
             viewModel.isRecording.collect { recording ->
-                binding.btnRecord.text = if (recording) "⏹ Stop Rec" else "🎙 Record"
+                refreshRecordButton(recording, viewModel.pendingRecordingPath.value)
             }
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.pendingRecordingPath.collect { pending ->
+                refreshRecordButton(viewModel.isRecording.value, pending)
+            }
+        }
+    }
+
+    /**
+     * Three-state record button so the user always knows whether their
+     * audio is going to be attached on save:
+     *  • idle, no recording yet  → "🎙 Record Session Audio"
+     *  • currently recording     → "⏹ Stop Rec"
+     *  • stopped, waiting to save → "🎙 Recording ready — tap to re-record"
+     */
+    private fun refreshRecordButton(recording: Boolean, pendingPath: String?) {
+        binding.btnRecord.text = when {
+            recording          -> "⏹ Stop Rec"
+            pendingPath != null -> "🎙 Recording ready · tap to re-record"
+            else               -> "🎙 Record Session Audio"
         }
     }
 
@@ -218,14 +252,206 @@ class PracticeJournalFragment : Fragment() {
     }
 
     private fun setupRecycler() {
-        val adapter = PracticeLogAdapter()
+        logAdapter = PracticeLogAdapter(
+            onRowClick = { entry ->
+                // Only rows with a recording are interactive — tapping expands
+                // the inline player. Non-recording rows are inert.
+                if (entry.recordingPath == null) return@PracticeLogAdapter
+                val wasExpanded = logAdapter.expandedSessionId == entry.id
+                val newExpanded = logAdapter.toggleExpanded(entry)
+                if (wasExpanded) {
+                    // Collapsing the currently-playing row — stop audio.
+                    stopPlayback()
+                } else if (newExpanded == entry.id) {
+                    // Expanded a new row — stop any other playback but don't
+                    // auto-start; let the user press ▶.
+                    if (playingSession?.id != entry.id) stopPlayback()
+                }
+            },
+            onRowLongClick = { entry ->
+                if (entry.recordingPath != null) {
+                    shareRecording(entry)
+                    true
+                } else false
+            },
+            onPlayToggle = { entry -> togglePlayback(entry) },
+            onSeekTo = { entry, ms ->
+                if (playingSession?.id == entry.id && playerPrepared) {
+                    try { mediaPlayer?.seekTo(ms) } catch (_: Throwable) {}
+                    pushPlaybackState()
+                }
+            },
+            onDeleteRecording = { entry -> confirmDeleteRecording(entry) }
+        )
         binding.recyclerLog.layoutManager = LinearLayoutManager(requireContext())
-        binding.recyclerLog.adapter = adapter
+        binding.recyclerLog.adapter = logAdapter
+        binding.recyclerLog.itemAnimator = androidx.recyclerview.widget.DefaultItemAnimator()
+
+        // Track the freshest timestamp we've seen so we can detect a brand-new
+        // session arriving from a save and scroll it into view.
+        var newestSeenMs = 0L
         viewLifecycleOwner.lifecycleScope.launch {
             viewModel.recentSessions.collect { sessions ->
-                adapter.submitList(sessions)
+                val incomingNewest = sessions.firstOrNull()?.timestampMs ?: 0L
+                val isNewSave = incomingNewest > newestSeenMs && newestSeenMs > 0L
+                logAdapter.submitList(sessions) {
+                    if (isNewSave) binding.recyclerLog.scrollToPosition(0)
+                }
+                newestSeenMs = maxOf(newestSeenMs, incomingNewest)
             }
         }
+    }
+
+    // ── Inline recording playback ───────────────────────────────────
+
+    private fun togglePlayback(entry: PracticeSessionEntity) {
+        val path = entry.recordingPath ?: return
+
+        // Same row → pause / resume.
+        if (playingSession?.id == entry.id && mediaPlayer != null) {
+            val mp = mediaPlayer ?: return
+            try {
+                if (mp.isPlaying) {
+                    mp.pause()
+                    stopPositionTicker()
+                } else if (playerPrepared) {
+                    mp.start()
+                    startPositionTicker()
+                }
+            } catch (_: IllegalStateException) { /* ignore */ }
+            pushPlaybackState()
+            return
+        }
+
+        // Different row → tear down the old player, spin up a new one.
+        releasePlayer()
+
+        val file = File(path)
+        if (!file.exists()) {
+            Toast.makeText(requireContext(), "Recording file missing", Toast.LENGTH_SHORT).show()
+            viewModel.clearRecordingPath(entry)
+            return
+        }
+
+        val mp = MediaPlayer()
+        mediaPlayer = mp
+        playingSession = entry
+        playerPrepared = false
+        try {
+            mp.setDataSource(path)
+        } catch (e: IOException) {
+            Toast.makeText(requireContext(), "Can't open recording", Toast.LENGTH_SHORT).show()
+            viewModel.clearRecordingPath(entry)
+            releasePlayer()
+            return
+        }
+        mp.setOnPreparedListener {
+            playerPrepared = true
+            mp.start()
+            startPositionTicker()
+            pushPlaybackState()
+        }
+        mp.setOnCompletionListener {
+            stopPositionTicker()
+            try { mp.seekTo(0) } catch (_: Throwable) {}
+            pushPlaybackState()
+        }
+        mp.setOnErrorListener { _, _, _ ->
+            Toast.makeText(requireContext(), "Playback error", Toast.LENGTH_SHORT).show()
+            releasePlayer()
+            pushPlaybackState()
+            true
+        }
+        try {
+            mp.prepareAsync()
+        } catch (_: IllegalStateException) {
+            Toast.makeText(requireContext(), "Playback error", Toast.LENGTH_SHORT).show()
+            releasePlayer()
+        }
+        pushPlaybackState()
+    }
+
+    private fun stopPlayback() {
+        releasePlayer()
+        pushPlaybackState()
+    }
+
+    private fun releasePlayer() {
+        stopPositionTicker()
+        try { mediaPlayer?.reset() } catch (_: Throwable) {}
+        try { mediaPlayer?.release() } catch (_: Throwable) {}
+        mediaPlayer = null
+        playingSession = null
+        playerPrepared = false
+    }
+
+    private fun startPositionTicker() {
+        stopPositionTicker()
+        positionJob = viewLifecycleOwner.lifecycleScope.launch {
+            while (isActive) {
+                pushPlaybackState()
+                delay(200)
+            }
+        }
+    }
+
+    private fun stopPositionTicker() {
+        positionJob?.cancel()
+        positionJob = null
+    }
+
+    private fun pushPlaybackState() {
+        val session = playingSession
+        val mp = mediaPlayer
+        if (session == null || mp == null || !playerPrepared) {
+            logAdapter.updatePlayback(session?.id, playing = false, posMs = 0, durMs = 0)
+            return
+        }
+        val playing = try { mp.isPlaying } catch (_: IllegalStateException) { false }
+        val pos = try { mp.currentPosition } catch (_: IllegalStateException) { 0 }
+        val dur = try { mp.duration } catch (_: IllegalStateException) { 0 }
+        logAdapter.updatePlayback(session.id, playing, pos, dur)
+    }
+
+    private fun confirmDeleteRecording(entry: PracticeSessionEntity) {
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Delete recording?")
+            .setMessage("This permanently removes the audio file for this session. The session entry itself stays.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Delete") { _, _ ->
+                if (playingSession?.id == entry.id) stopPlayback()
+                viewModel.deleteRecording(entry)
+                logAdapter.collapse()
+                Toast.makeText(requireContext(), "Recording deleted", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+
+    private fun shareRecording(entry: PracticeSessionEntity) {
+        val path = entry.recordingPath ?: return
+        val file = File(path)
+        if (!file.exists()) {
+            Toast.makeText(requireContext(), "Recording file missing", Toast.LENGTH_SHORT).show()
+            viewModel.clearRecordingPath(entry)
+            return
+        }
+        val uri = try {
+            FileProvider.getUriForFile(
+                requireContext(),
+                "${requireContext().packageName}.fileprovider",
+                file
+            )
+        } catch (e: IllegalArgumentException) {
+            Toast.makeText(requireContext(), "Can't share this file", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "audio/mp4"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, "Cello practice: ${entry.pieceName}")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(intent, "Share recording"))
     }
 
     private fun observeViewModel() {
@@ -241,22 +467,54 @@ class PracticeJournalFragment : Fragment() {
 
         viewLifecycleOwner.lifecycleScope.launch {
             viewModel.events.collect { event ->
+                val hostView = (parentFragment as? JournalHostFragment)?.view
+                val fireworks = hostView?.findViewById<FireworksOverlayView>(
+                    com.cellomusic.app.R.id.fireworks_overlay
+                )
+                val xpBurst = hostView?.findViewById<XpBurstView>(
+                    com.cellomusic.app.R.id.xp_burst_overlay
+                )
                 when (event) {
                     is JournalEvent.LevelUp -> {
-                        Toast.makeText(requireContext(), "🎉 Level Up! You're now Level ${event.newLevel}!", Toast.LENGTH_LONG).show()
-                        // Trigger fireworks in parent host
-                        (parentFragment as? JournalHostFragment)?.view
-                            ?.findViewById<FireworksOverlayView>(com.cellomusic.app.R.id.fireworks_overlay)
-                            ?.fire(5)
+                        Toast.makeText(requireContext(),
+                            "🎉 Level Up! You're now Level ${event.newLevel}!",
+                            Toast.LENGTH_LONG).show()
+                        fireworks?.fire(5)
                     }
                     is JournalEvent.GoalCompleted -> {
-                        Toast.makeText(requireContext(), "🎆 Goal completed! +1000 bonus points!", Toast.LENGTH_LONG).show()
-                        (parentFragment as? JournalHostFragment)?.view
-                            ?.findViewById<FireworksOverlayView>(com.cellomusic.app.R.id.fireworks_overlay)
-                            ?.fire(4)
+                        Toast.makeText(requireContext(),
+                            "🎆 Goal completed! +1000 bonus points!",
+                            Toast.LENGTH_LONG).show()
+                        fireworks?.fire(4)
+                    }
+                    is JournalEvent.StreakSaved -> {
+                        // Grace day kicked in — make it clearly visible so the
+                        // user knows the streak-saver feature exists.
+                        Toast.makeText(requireContext(),
+                            "🔥 Streak saved! ${event.newStreak} days and counting.",
+                            Toast.LENGTH_LONG).show()
+                    }
+                    is JournalEvent.StreakAdvanced -> {
+                        if (event.isMilestone) {
+                            Toast.makeText(requireContext(),
+                                "🔥 ${event.newStreak}-day streak milestone!",
+                                Toast.LENGTH_LONG).show()
+                            fireworks?.fire(3)
+                        }
+                    }
+                    is JournalEvent.AchievementsUnlocked -> {
+                        val first = event.defs.first()
+                        val more = if (event.defs.size > 1)
+                            " (+${event.defs.size - 1} more)" else ""
+                        Toast.makeText(requireContext(),
+                            "🏆 Achievement unlocked: ${first.icon} ${first.title}$more",
+                            Toast.LENGTH_LONG).show()
+                        fireworks?.fire(2)
                     }
                     is JournalEvent.SessionSaved -> {
-                        Toast.makeText(requireContext(), "Session saved!", Toast.LENGTH_SHORT).show()
+                        // Celebrate every save with the XP burst. Don't
+                        // duplicate a toast — the burst IS the feedback.
+                        xpBurst?.show(event.xpEarned, event.subText)
                     }
                 }
             }
@@ -329,12 +587,14 @@ class PracticeJournalFragment : Fragment() {
             handler.removeCallbacks(tickRunnable)
             binding.btnTimerStart.text = "Resume"
         }
+        // Don't keep audio playing while the user is elsewhere in the app.
+        releasePlayer()
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
         handler.removeCallbacks(tickRunnable)
-        mediaPlayer?.release()
+        releasePlayer()
         _binding = null
     }
 }

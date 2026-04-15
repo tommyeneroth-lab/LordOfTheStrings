@@ -51,4 +51,14 @@
         android:elevation="100dp"
         android:visibility="gone" />
 
+    <!-- XP burst overlay — floats "+N XP" text on session saves -->
+    <com.cellomusic.app.ui.journal.view.XpBurstView
+        android:id="@+id/xp_burst_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:elevation="101dp"
+        android:clickable="false"
+        android:focusable="false"
+        android:visibility="gone" />
+
 </FrameLayout>

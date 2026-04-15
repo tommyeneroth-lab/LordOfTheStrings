@@ -16,14 +16,17 @@ import kotlin.math.roundToInt
  * Optical Music Recognition processor for cello scores.
  *
  * Pipeline:
- *  1. Scale large images to avoid OOM
- *  2. Grayscale conversion (vectorised via getPixels)
- *  3. Sauvola adaptive binarization – handles phone-photo lighting/shadows
- *  4. Run-length–based staff detection – far more robust than row density
- *  5. Smart staff-line removal – preserves noteheads / stems crossing lines
- *  6. Connected-component labelling (iterative DFS – no stack overflow)
- *  7. Symbol classification calibrated to actual staff spacing
- *  8. Score assembly with bass-clef pitch mapping
+ *  1.  Scale large images to avoid OOM
+ *  2.  Grayscale conversion (vectorised via getPixels)
+ *  3a. Sauvola adaptive binarization – handles phone-photo lighting/shadows
+ *  3b. Score region isolation – removes titles, page numbers, margins
+ *  3c. Dewarp curved/wavy pages – straightens photos from uneven surfaces
+ *  4.  Deskew – projection-profile variance rotation correction
+ *  5.  Resolution standardisation – normalise staff spacing to ~20px
+ *  6.  Staff detection (run-length encoding) – far more robust than row density
+ *  7.  Smart staff-line removal – preserves noteheads / stems crossing lines
+ *  8.  Strip-based notehead detection with beam counting
+ *  9.  Score assembly with bass-clef pitch mapping
  */
 class OmrProcessor(private val context: Context) {
 
@@ -69,11 +72,34 @@ class OmrProcessor(private val context: Context) {
         onProgress?.invoke("Converting to grayscale…")
         var gray = toGrayscale(bmp, imgW, imgH)
 
-        // ── Step 3: Otsu binarization ────────────────────────────────────────
-        // Otsu's global threshold works best for clean printed/scanned scores
-        // (consistent contrast).  Falls back to Sauvola if contrast is too low.
-        onProgress?.invoke("Binarizing (Otsu's method)…")
-        var binary = otsuBinarize(gray, imgW, imgH)
+        // ── Step 3a: Adaptive binarization ──────────────────────────────────
+        // Sauvola adaptive threshold handles uneven lighting, shadows, and
+        // curved-page gradients from phone photos far better than global Otsu.
+        onProgress?.invoke("Binarizing (adaptive threshold)…")
+        var binary = sauvolaBinarize(gray, imgW, imgH)
+
+        // ── Step 3b: Score region isolation ──────────────────────────────
+        // Crops to just the musical content, removing titles, page numbers,
+        // margins, and any non-score areas captured in the photo.
+        onProgress?.invoke("Isolating score region…")
+        val region = isolateScoreRegion(binary, gray, imgW, imgH)
+        if (region != null) {
+            binary = region.binary; gray = region.gray
+            imgW = region.width; imgH = region.height
+            onProgress?.invoke("Cropped to score region (${imgW}×${imgH})")
+        }
+
+        // ── Step 3c: Dewarp curved/wavy staff lines ─────────────────────
+        // Photos on uneven surfaces (music stands, book spines) produce
+        // curved staff lines.  Detect curvature via column-strip horizontal
+        // projections and straighten with per-column vertical shifts.
+        onProgress?.invoke("Detecting page curvature…")
+        val dewarpResult = dewarpImage(gray, binary, imgW, imgH)
+        if (dewarpResult != null) {
+            gray = dewarpResult.first; imgW = dewarpResult.second; imgH = dewarpResult.third
+            binary = sauvolaBinarize(gray, imgW, imgH)
+            onProgress?.invoke("Dewarped curved staff lines")
+        }
 
         // ── Step 4: Deskew ───────────────────────────────────────────────────
         // Even 1–2° tilt causes row-density peaks to spread and smear, which
@@ -84,7 +110,7 @@ class OmrProcessor(private val context: Context) {
             onProgress?.invoke("Deskewing (%.1f°)…".format(skewDeg))
             val (rotGray, rw, rh) = rotateGray(gray, imgW, imgH, -skewDeg)
             gray = rotGray; imgW = rw; imgH = rh
-            binary = otsuBinarize(gray, imgW, imgH)
+            binary = sauvolaBinarize(gray, imgW, imgH)
         }
 
         // ── Step 5: Resolution standardisation ──────────────────────────────
@@ -105,7 +131,7 @@ class OmrProcessor(private val context: Context) {
                 onProgress?.invoke("Rescaling %.0f→%.0f px staff-space…".format(avgSp, target))
                 gray = rescaleGray(gray, imgW, imgH, newW, newH)
                 imgW = newW; imgH = newH
-                binary = otsuBinarize(gray, imgW, imgH)
+                binary = sauvolaBinarize(gray, imgW, imgH)
             }
         }
 
@@ -356,6 +382,318 @@ class OmrProcessor(private val context: Context) {
                 gray[iy + 1][ix + 1] * fx       * fy
             }
         }
+    }
+
+    // ── Score region isolation ─────────────────────────────────────────
+
+    private data class IsolatedRegion(
+        val binary: Array<BooleanArray>,
+        val gray: Array<FloatArray>,
+        val width: Int,
+        val height: Int
+    )
+
+    /**
+     * Isolates the musical score region and removes non-score content
+     * (titles, page numbers, composer text, blank margins, headers/footers).
+     *
+     * Algorithm:
+     *  1. Compute horizontal projection (black pixel count per row).
+     *  2. Identify "content bands" — runs of rows with density above a threshold.
+     *  3. For each band, check if it contains staff-like horizontal runs (long runs ≥ 8% width).
+     *     Bands without staff-like runs are likely text (titles, lyrics, page numbers).
+     *  4. Keep only bands that contain staff-like content or are sandwiched between staff bands.
+     *  5. Compute vertical projection on the kept rows to trim left/right margins.
+     *  6. Crop gray + binary to the identified bounding box with a small padding.
+     */
+    private fun isolateScoreRegion(
+        binary: Array<BooleanArray>,
+        gray: Array<FloatArray>,
+        w: Int, h: Int
+    ): IsolatedRegion? {
+        if (w < 50 || h < 50) return null
+
+        // --- Horizontal projection: count black pixels per row ---
+        val hProj = IntArray(h)
+        for (y in 0 until h) {
+            var count = 0
+            for (x in 0 until w) if (binary[y][x]) count++
+            hProj[y] = count
+        }
+
+        // Row density threshold: a row has "content" if ≥ 0.5% of width is black
+        val rowThreshold = (w * 0.005f).toInt().coerceAtLeast(2)
+
+        // --- Find content bands (contiguous runs of rows above threshold) ---
+        data class Band(val top: Int, val bottom: Int)
+        val bands = mutableListOf<Band>()
+        var y = 0
+        while (y < h) {
+            if (hProj[y] >= rowThreshold) {
+                val bandTop = y
+                while (y < h && hProj[y] >= rowThreshold) y++
+                val bandBot = y - 1
+                // Only consider bands at least 8 rows tall (skip noise)
+                if (bandBot - bandTop >= 8) {
+                    bands.add(Band(bandTop, bandBot))
+                }
+            }
+            y++
+        }
+
+        if (bands.isEmpty()) return null
+
+        // --- Classify each band: does it contain staff-like horizontal runs? ---
+        // Staff lines produce long horizontal runs ≥ 8% of image width.
+        // Text characters have short runs.
+        val staffRunThreshold = (w * 0.08f).toInt().coerceAtLeast(20)
+        val isStaffBand = BooleanArray(bands.size)
+        for (i in bands.indices) {
+            val band = bands[i]
+            var staffRowCount = 0
+            for (by in band.top..band.bottom) {
+                var run = 0; var maxRun = 0
+                for (x in 0 until w) {
+                    if (binary[by][x]) { if (++run > maxRun) maxRun = run }
+                    else run = 0
+                }
+                if (maxRun >= staffRunThreshold) staffRowCount++
+            }
+            // A staff band should have at least 3 rows with long horizontal runs
+            // (the 5 staff lines, even if some are partially broken)
+            isStaffBand[i] = staffRowCount >= 3
+        }
+
+        // If no staff bands detected, don't crop (may lose everything)
+        if (isStaffBand.none { it }) return null
+
+        // --- Keep staff bands + bands BETWEEN staff bands ---
+        // We deliberately do NOT keep "immediate neighbour" bands ABOVE the first
+        // staff or BELOW the last staff — those are almost always title/subtitle/
+        // composer text (above) or page numbers/footers (below), and their
+        // horizontal strokes are what causes countBeamsNear to misclassify notes
+        // in the outermost staff systems as eighth notes.
+        //
+        // Padding added later (pad = 2% of h) is enough to preserve ledger lines
+        // extending above/below the staff, since ledger-lined notes are drawn
+        // close enough to their staff that the horizontal projection keeps them
+        // in the same band.
+        val keepBand = BooleanArray(bands.size)
+        var firstStaff = -1; var lastStaff = -1
+        for (i in bands.indices) {
+            if (isStaffBand[i]) {
+                if (firstStaff < 0) firstStaff = i
+                lastStaff = i
+            }
+        }
+        if (firstStaff >= 0) {
+            for (i in firstStaff..lastStaff) keepBand[i] = true
+        }
+
+        // --- Compute vertical bounds from kept bands ---
+        val keptBands = bands.filterIndexed { i, _ -> keepBand[i] }
+        if (keptBands.isEmpty()) return null
+
+        // Add padding (1 staff-space estimate ≈ 2% of height)
+        val pad = (h * 0.02f).toInt().coerceIn(5, 40)
+        val cropTop = (keptBands.first().top - pad).coerceAtLeast(0)
+        val cropBot = (keptBands.last().bottom + pad).coerceAtMost(h - 1)
+
+        // --- Vertical projection on kept rows to trim left/right margins ---
+        val vProj = IntArray(w)
+        for (ry in cropTop..cropBot) {
+            for (x in 0 until w) if (binary[ry][x]) vProj[x]++
+        }
+        val colThreshold = ((cropBot - cropTop) * 0.003f).toInt().coerceAtLeast(1)
+        var cropLeft = 0
+        while (cropLeft < w && vProj[cropLeft] < colThreshold) cropLeft++
+        var cropRight = w - 1
+        while (cropRight > cropLeft && vProj[cropRight] < colThreshold) cropRight--
+
+        // Add horizontal padding
+        val hPad = (w * 0.01f).toInt().coerceIn(3, 20)
+        cropLeft = (cropLeft - hPad).coerceAtLeast(0)
+        cropRight = (cropRight + hPad).coerceAtMost(w - 1)
+
+        val newW = cropRight - cropLeft + 1
+        val newH = cropBot - cropTop + 1
+
+        // Don't crop if we'd remove less than 5% — not worth the overhead
+        if (newW > w * 0.95f && newH > h * 0.95f) return null
+
+        // --- Crop both arrays ---
+        val newBinary = Array(newH) { ny ->
+            BooleanArray(newW) { nx -> binary[cropTop + ny][cropLeft + nx] }
+        }
+        val newGray = Array(newH) { ny ->
+            FloatArray(newW) { nx -> gray[cropTop + ny][cropLeft + nx] }
+        }
+
+        return IsolatedRegion(newBinary, newGray, newW, newH)
+    }
+
+    // ── Dewarping (curved / wavy page correction) ───────────────────────
+
+    /**
+     * Corrects page curvature from photos taken on uneven surfaces (music stands,
+     * book spines, curved pages).
+     *
+     * Algorithm:
+     *  1. Divide the image into vertical column strips (each ~30px wide).
+     *  2. In each strip, compute horizontal projection profile and find the
+     *     y-positions of peak rows (staff lines appear as density peaks).
+     *  3. Fit a smooth curve through the peak positions across all strips.
+     *     In a flat image, peaks are at the same y across all strips.
+     *     In a curved image, peaks follow the page curvature.
+     *  4. Compute per-column vertical displacement to flatten the curve.
+     *  5. Apply the displacement map to the grayscale image with bilinear
+     *     interpolation.
+     *
+     * This handles both simple bow (single curve) and S-curves from
+     * pages partially lifted off a surface.
+     */
+    private fun dewarpImage(
+        gray: Array<FloatArray>,
+        binary: Array<BooleanArray>,
+        w: Int, h: Int
+    ): Triple<Array<FloatArray>, Int, Int>? {
+        if (w < 100 || h < 100) return null
+
+        val stripWidth = 30.coerceAtMost(w / 8)
+        val numStrips = w / stripWidth
+        if (numStrips < 4) return null
+
+        // --- For each strip, find prominent horizontal density peaks ---
+        // These correspond to staff lines; their y-positions trace the curvature.
+        data class StripPeak(val stripIdx: Int, val stripCenterX: Int, val peakY: Int)
+        val allPeaks = mutableListOf<StripPeak>()
+
+        // Minimum run length to count a pixel as "staff-like" in a strip
+        val minRunInStrip = (stripWidth * 0.5f).toInt().coerceAtLeast(5)
+
+        for (s in 0 until numStrips) {
+            val xStart = s * stripWidth
+            val xEnd = (xStart + stripWidth - 1).coerceAtMost(w - 1)
+            val centerX = (xStart + xEnd) / 2
+
+            // Horizontal projection within this strip
+            val proj = IntArray(h)
+            for (y in 0 until h) {
+                var count = 0
+                for (x in xStart..xEnd) if (binary[y][x]) count++
+                proj[y] = count
+            }
+
+            // Find peaks: rows where projection is above threshold and is a local max
+            val threshold = (stripWidth * 0.40f).toInt().coerceAtLeast(3)
+            for (y in 2 until h - 2) {
+                if (proj[y] >= threshold &&
+                    proj[y] >= proj[y - 1] && proj[y] >= proj[y + 1] &&
+                    proj[y] >= proj[y - 2] && proj[y] >= proj[y + 2]) {
+                    allPeaks.add(StripPeak(s, centerX, y))
+                }
+            }
+        }
+
+        if (allPeaks.size < numStrips * 2) return null // not enough peaks to detect curvature
+
+        // --- Group peaks into horizontal "chains" (each chain = one staff line) ---
+        // Staff lines should have peaks at similar y across most strips.
+        // Use a simple row-clustering: peaks within ±4px vertically belong to same chain.
+        data class PeakChain(val peaks: MutableList<StripPeak>)
+        val chains = mutableListOf<PeakChain>()
+
+        val sortedPeaks = allPeaks.sortedWith(compareBy({ it.peakY }, { it.stripIdx }))
+        val used = BooleanArray(sortedPeaks.size)
+
+        for (i in sortedPeaks.indices) {
+            if (used[i]) continue
+            val chain = PeakChain(mutableListOf(sortedPeaks[i]))
+            used[i] = true
+            val baseY = sortedPeaks[i].peakY
+
+            // Gather peaks at similar y, preferring one per strip
+            val stripsUsed = mutableSetOf(sortedPeaks[i].stripIdx)
+            for (j in i + 1 until sortedPeaks.size) {
+                if (used[j]) continue
+                val p = sortedPeaks[j]
+                if (p.peakY > baseY + 4) break  // sorted by y, so no more matches
+                if (abs(p.peakY - baseY) <= 4 && p.stripIdx !in stripsUsed) {
+                    chain.peaks.add(p)
+                    used[j] = true
+                    stripsUsed.add(p.stripIdx)
+                }
+            }
+            if (chain.peaks.size >= numStrips / 2) {
+                chains.add(chain)
+            }
+        }
+
+        if (chains.size < 3) return null // need at least a few staff lines
+
+        // --- Compute per-column vertical displacement ---
+        // For each chain, compute the deviation of each peak from the chain's
+        // median y.  Average all chain deviations per strip to get a displacement map.
+        val displacementPerStrip = FloatArray(numStrips)
+        val countPerStrip = IntArray(numStrips)
+
+        for (chain in chains) {
+            val medianY = chain.peaks.sortedBy { it.peakY }[chain.peaks.size / 2].peakY
+            for (p in chain.peaks) {
+                val dy = (p.peakY - medianY).toFloat()
+                displacementPerStrip[p.stripIdx] += dy
+                countPerStrip[p.stripIdx]++
+            }
+        }
+
+        // Average displacement per strip
+        for (s in 0 until numStrips) {
+            if (countPerStrip[s] > 0) {
+                displacementPerStrip[s] /= countPerStrip[s]
+            }
+        }
+
+        // Check if curvature is significant (max deviation > 3 pixels)
+        val maxDisplacement = displacementPerStrip.maxOrNull()?.let { abs(it) } ?: 0f
+        val minDisplacement = displacementPerStrip.minOrNull()?.let { abs(it) } ?: 0f
+        val totalRange = maxDisplacement + minDisplacement
+        if (totalRange < 3f) return null // image is flat enough, no dewarping needed
+
+        // --- Interpolate displacement to per-column (smooth with linear interp) ---
+        val colDisplacement = FloatArray(w)
+        for (x in 0 until w) {
+            val stripF = x.toFloat() / stripWidth
+            val s0 = stripF.toInt().coerceIn(0, numStrips - 1)
+            val s1 = (s0 + 1).coerceAtMost(numStrips - 1)
+            val frac = stripF - s0
+            colDisplacement[x] = displacementPerStrip[s0] * (1 - frac) + displacementPerStrip[s1] * frac
+        }
+
+        // --- Apply displacement to gray image ---
+        // Shift each column up/down by its displacement to straighten the page.
+        // The output may need a few extra rows to accommodate the shift range.
+        val maxShiftUp = colDisplacement.minOrNull()?.let { -it.toInt() }?.coerceAtLeast(0) ?: 0
+        val maxShiftDown = colDisplacement.maxOrNull()?.toInt()?.coerceAtLeast(0) ?: 0
+        val newH = h + maxShiftUp + maxShiftDown
+        val offsetY = maxShiftUp
+
+        val result = Array(newH) { FloatArray(w) { 1f } }  // white background
+        for (x in 0 until w) {
+            val dy = colDisplacement[x]
+            for (ny in 0 until newH) {
+                // Source y = ny - offsetY + dy  (inverse mapping)
+                val srcY = ny - offsetY + dy
+                val iy = srcY.toInt()
+                if (iy in 0 until h - 1) {
+                    val fy = srcY - iy
+                    result[ny][x] = gray[iy][x] * (1 - fy) + gray[iy + 1][x] * fy
+                } else if (iy == h - 1 && iy >= 0) {
+                    result[ny][x] = gray[iy][x]
+                }
+            }
+        }
+
+        return Triple(result, w, newH)
     }
 
     /**
@@ -641,12 +979,23 @@ class OmrProcessor(private val context: Context) {
      */
     private fun countBeamsNear(
         cx: Int, cy: Int, sp: Float,
-        noStaff: Array<BooleanArray>, w: Int, h: Int
+        noStaff: Array<BooleanArray>, w: Int, h: Int,
+        staff: StaffSystem? = null
     ): Int {
         // Tight vertical window: stem length is at most ~3.5×sp above or below the notehead
         // Tight horizontal window: beam attaches to the stem, which is within ~0.5×sp of center
-        val scanTop = (cy - (sp * 4).toInt()).coerceAtLeast(0)
-        val scanBot = (cy + (sp * 4).toInt()).coerceAtMost(h - 1)
+        //
+        // CRITICAL: clamp the vertical window to NOT extend beyond the staff band by
+        // more than ~3×sp.  Otherwise, for noteheads on outer staves, the scan reaches
+        // into title/subtitle/tempo text (above the top staff) or page-number/footer
+        // text (below the bottom staff).  Horizontal runs in that text get falsely
+        // counted as "beam groups", inflating the beam count and making every
+        // filled notehead register as 16th/32nd notes — which plays as a frantic
+        // burst and then falls silent for the rest of the measure.
+        val upperBound  = staff?.let { (it.top    - sp * 3f).toInt() } ?: 0
+        val lowerBound  = staff?.let { (it.bottom + sp * 3f).toInt() } ?: (h - 1)
+        val scanTop = (cy - (sp * 4).toInt()).coerceIn(upperBound.coerceAtLeast(0), h - 1)
+        val scanBot = (cy + (sp * 4).toInt()).coerceIn(0, lowerBound.coerceAtMost(h - 1))
         val xLeft   = (cx - (sp * 2).toInt()).coerceAtLeast(0)
         val xRight  = (cx + (sp * 2).toInt()).coerceAtMost(w - 1)
 
@@ -1048,23 +1397,55 @@ class OmrProcessor(private val context: Context) {
             val sysSyms  = symbols.filter { it.staff == system }
             var barlines = (barlineMap[system] ?: emptyList()).toMutableList()
 
-            // If no barlines found, estimate measure positions using the staff system width.
-            // A typical system has 4–5 measures; divide evenly.
+            // Estimate how many measures this system should have based on staff
+            // width — used both when no barlines found AND to sanity-check the
+            // detected count.  A typical cello-line measure is ~12–15 staff spacings wide.
+            val sp = system.spacing
+            val systemWidth = system.right - system.left
+            val estMeasureWidth = (sp * 13f).toInt().coerceAtLeast(1)
+            val expectedMeasures = (systemWidth / estMeasureWidth).coerceIn(1, 8)
+
+            // If no barlines found, estimate measure positions evenly.
             if (barlines.isEmpty()) {
-                val sp = system.spacing
-                val systemWidth = system.right - system.left
-                val estMeasureWidth = (sp * 12f).toInt().coerceAtLeast(1)
-                val numMeasures = (systemWidth / estMeasureWidth).coerceIn(1, 8)
-                val step = systemWidth / numMeasures
-                for (k in 1 until numMeasures) barlines.add(system.left + k * step)
+                val step = systemWidth / expectedMeasures
+                for (k in 1 until expectedMeasures) barlines.add(system.left + k * step)
             }
 
             // Build measure x-bounds from barline positions.
             // Filter out barlines that are at the very start or end of the system (system barlines).
-            val sysWidth = system.right - system.left
-            val filteredBarlines = barlines.sorted().filter { bx ->
+            val sysWidth = systemWidth
+            var filteredBarlines = barlines.sorted().filter { bx ->
                 bx > system.left + sysWidth * 0.05f &&   // not within 5% of left edge
                 bx < system.right - sysWidth * 0.02f     // not within 2% of right edge
+            }.toMutableList()
+
+            // Sanity check: if far fewer interior barlines were detected than the
+            // staff width suggests (common when a system sits under title/header
+            // text that suppresses barline scoring), synthesize the missing ones
+            // by evenly subdividing oversized gaps.  Without this, two real
+            // measures get merged into one "measure", which then plays 2× too fast.
+            val expectedInterior = (expectedMeasures - 1).coerceAtLeast(0)
+            if (filteredBarlines.size < expectedInterior) {
+                // Build candidate gap list (system.left → each barline → system.right)
+                // and repeatedly split the widest gap until we have enough barlines.
+                val edges = mutableListOf(system.left).apply {
+                    addAll(filteredBarlines); add(system.right)
+                }.apply { sort() }
+                while (edges.size - 2 < expectedInterior) {
+                    // find widest gap
+                    var widestIdx = 0
+                    var widestW = 0
+                    for (i in 0 until edges.size - 1) {
+                        val w = edges[i + 1] - edges[i]
+                        if (w > widestW) { widestW = w; widestIdx = i }
+                    }
+                    // Stop splitting if the widest gap is already near one measure.
+                    // This protects genuine short systems from over-segmentation.
+                    if (widestW < (estMeasureWidth * 1.6f).toInt()) break
+                    val mid = (edges[widestIdx] + edges[widestIdx + 1]) / 2
+                    edges.add(widestIdx + 1, mid)
+                }
+                filteredBarlines = edges.drop(1).dropLast(1).toMutableList()
             }
             val bounds = mutableListOf<Pair<Int, Int>>()
             if (filteredBarlines.isEmpty()) {
@@ -1083,9 +1464,53 @@ class OmrProcessor(private val context: Context) {
                 // Always add the measure — empty measures are fine structurally.
                 // (Previously skipped empty mid-score measures which hid real measures after them.)
 
-                // If a "measure" has too many notes, it's likely a mis-split.
-                // Chunk it into sub-measures of ≤16 notes each rather than discarding.
-                val chunks = if (notes.size > 16) notes.chunked(16) else listOf(notes)
+                // Split a bounded region into sub-measures.  We split on any of:
+                //  (1) accumulated duration would exceed ticksPerMeasure
+                //      (overfull from OMR giving too-long durations — compresses
+                //       fast in encoder if not split)
+                //  (2) note count reaches a per-measure cap
+                //      (common when barlines merged two real measures into one
+                //       and/or durations were under-classified — without splitting,
+                //       encoder plays multi-measure content in one measure-time
+                //       i.e. "2× too fast")
+                //
+                // Cap is adaptive: a measure with mostly short durations can
+                // legitimately have more notes, so we raise the cap when the average
+                // duration so far is shorter than an eighth.
+                val ticksPerMeasure = 4 * 480  // matches MidiScoreEncoder TICKS_PER_QUARTER
+                val chunks = mutableListOf<List<MusicElement>>()
+                if (notes.isEmpty()) {
+                    chunks.add(emptyList())
+                } else {
+                    var current = mutableListOf<MusicElement>()
+                    var accum = 0
+                    for (el in notes) {
+                        val d = when (el) {
+                            is Note      -> el.duration.toTicksWithDots(el.dotCount)
+                            is ChordNote -> el.duration.toTicksWithDots(el.dotCount)
+                            is Rest      -> el.duration.toTicksWithDots(el.dotCount)
+                            else         -> 0
+                        }
+                        // Adaptive note-count cap: base 8 (eighths fill a 4/4 measure).
+                        // If the current chunk's average note duration is already short,
+                        // allow more (e.g. 16 for sixteenth-density content).
+                        val avg = if (current.isNotEmpty()) accum / current.size else 240
+                        val noteCountCap = when {
+                            avg <= 90  -> 16  // 32nd-note density
+                            avg <= 180 -> 12  // 16th-note density
+                            else       -> 8   // eighth-or-longer density (typical)
+                        }
+                        if ((accum + d > ticksPerMeasure && current.isNotEmpty()) ||
+                            current.size >= noteCountCap) {
+                            chunks.add(current)
+                            current = mutableListOf()
+                            accum = 0
+                        }
+                        current.add(el)
+                        accum += d
+                    }
+                    if (current.isNotEmpty()) chunks.add(current)
+                }
 
                 for (chunk in chunks) {
                     val isFirst = measureNum == 1
@@ -1140,7 +1565,7 @@ class OmrProcessor(private val context: Context) {
                 SymbolType.NOTEHEAD_OPEN  -> NoteDuration(DurationType.HALF)
                 SymbolType.NOTEHEAD_FILLED -> {
                     // Count beam groups in the original noStaff image near this notehead
-                    val beams = countBeamsNear(nh.x, nh.y, staff.spacing, noStaff, w, h)
+                    val beams = countBeamsNear(nh.x, nh.y, staff.spacing, noStaff, w, h, staff)
                     when (beams) {
                         0    -> NoteDuration(DurationType.QUARTER)
                         1    -> NoteDuration(DurationType.EIGHTH)

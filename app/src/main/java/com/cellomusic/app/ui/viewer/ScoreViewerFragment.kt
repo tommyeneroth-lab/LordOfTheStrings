@@ -7,8 +7,10 @@ import android.widget.SeekBar
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
+import com.cellomusic.app.audio.playback.MidiScoreEncoder
 import com.cellomusic.app.audio.playback.ScorePlayer
 import com.cellomusic.app.databinding.FragmentScoreViewerBinding
+import com.google.android.material.slider.Slider
 import kotlinx.coroutines.launch
 
 class ScoreViewerFragment : Fragment() {
@@ -41,27 +43,54 @@ class ScoreViewerFragment : Fragment() {
 
     private fun setupPlaybackControls() {
         binding.btnPlay.setOnClickListener {
-            when (viewModel.playbackState.value) {
-                ScorePlayer.PlaybackState.PLAYING -> viewModel.pause()
-                ScorePlayer.PlaybackState.PAUSED, ScorePlayer.PlaybackState.STOPPED -> viewModel.play()
-            }
+            viewModel.playWithDebugDump(requireContext())
+        }
+
+        binding.btnPause.setOnClickListener {
+            viewModel.pause()
         }
 
         binding.btnStop.setOnClickListener {
             viewModel.stop()
+            // Scroll view back to the first note after playback has fully stopped.
+            // Post with a short delay so the stop() cleanup (which posts UI updates
+            // via mainHandler) finishes before we trigger a new scroll animation.
+            binding.scoreCanvas.postDelayed({
+                binding.scoreCanvas.scrollToNote(1, 0)
+            }, 100)
         }
 
-        // Tempo speed slider (0.25x to 2.0x)
-        binding.sliderTempo.valueFrom = 0.25f
-        binding.sliderTempo.valueTo = 2.0f
-        binding.sliderTempo.value = 1.0f
-        binding.sliderTempo.stepSize = 0.05f
-        binding.sliderTempo.addOnChangeListener { _, value, fromUser ->
-            if (fromUser) {
-                viewModel.setTempoMultiplier(value)
-                binding.tvTempoValue.text = "%.0f%%".format(value * 100)
-            }
+        // Tempo speed slider — reads out in BPM (40–200).
+        //
+        // Two behaviors matter here:
+        //  (1) Crash guard: the old implementation called setTempoMultiplier on
+        //      every onChange, which triggers a full stopPlayback + re-encode +
+        //      resumeFrom each time.  The Material slider fires onChange
+        //      continuously during drag, so that tore down the AudioTrack /
+        //      synth mid-write and could crash.  We now defer the re-encode to
+        //      onStopTrackingTouch (when the user lifts their finger).
+        //  (2) BPM semantics: the engine takes a multiplier relative to the
+        //      score's base BPM.  We convert bpmSlider / baseBpm → multiplier
+        //      just before applying.
+        binding.sliderTempo.valueFrom = 20f
+        binding.sliderTempo.valueTo = 200f
+        binding.sliderTempo.value = 120f
+        binding.sliderTempo.stepSize = 1f
+        binding.sliderTempo.addOnChangeListener { _, value, _ ->
+            // Live label update during drag (cheap — just a TextView assignment).
+            binding.tvTempoValue.text = "${value.toInt()} BPM"
         }
+        binding.sliderTempo.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
+            override fun onStartTrackingTouch(slider: Slider) {}
+            override fun onStopTrackingTouch(slider: Slider) {
+                val bpm = slider.value
+                val baseBpm = viewModel.scoreBaseBpm().coerceAtLeast(1)
+                // Engine accepts 0.1×–4.0× — widest range lets 20 BPM work on
+                // fast-base scores and 200 BPM on slow-base scores.
+                val multiplier = (bpm / baseBpm.toFloat()).coerceIn(0.1f, 4.0f)
+                viewModel.setTempoMultiplier(multiplier)
+            }
+        })
 
         // Volume slider (0..1)
         binding.sliderVolume.valueFrom = 0f
@@ -104,6 +133,41 @@ class ScoreViewerFragment : Fragment() {
             override fun onStartTrackingTouch(sb: SeekBar) {}
             override fun onStopTrackingTouch(sb: SeekBar) {}
         })
+
+        // ── Practice Mode controls ───────────────────────────────────────────
+
+        // Loop toggle
+        binding.btnLoopToggle.setOnClickListener { viewModel.toggleLoop() }
+
+        // Set loop A (start) to current measure
+        binding.btnLoopStart.setOnClickListener {
+            viewModel.setLoopStart()
+        }
+
+        // Set loop B (end) to current measure
+        binding.btnLoopEnd.setOnClickListener {
+            viewModel.setLoopEnd()
+        }
+
+        // Count-in toggle
+        binding.btnCountIn.setOnClickListener { viewModel.toggleCountIn() }
+
+        // Tempo ramp toggle
+        binding.btnTempoRamp.setOnClickListener { viewModel.toggleTempoRamp() }
+
+        // Ramp step adjustment
+        binding.btnRampLess.setOnClickListener {
+            val current = viewModel.tempoRampStep.value
+            val newStep = (current - 0.01f).coerceAtLeast(0.01f)
+            viewModel.setTempoRampStepValue(newStep)
+            binding.tvRampStep.text = "+%.0f%%/pass".format(newStep * 100)
+        }
+        binding.btnRampMore.setOnClickListener {
+            val current = viewModel.tempoRampStep.value
+            val newStep = (current + 0.01f).coerceAtMost(0.25f)
+            viewModel.setTempoRampStepValue(newStep)
+            binding.tvRampStep.text = "+%.0f%%/pass".format(newStep * 100)
+        }
     }
 
     private fun setupEditToolbar() {
@@ -156,6 +220,13 @@ class ScoreViewerFragment : Fragment() {
                     binding.tvComposer.text = it.composer ?: ""
                     val totalMeasures = it.parts.firstOrNull()?.measures?.size ?: 0
                     binding.seekbarProgress.max = (totalMeasures - 1).coerceAtLeast(0)
+                    // Initialize tempo slider to this score's base BPM.
+                    val baseBpm = viewModel.scoreBaseBpm().toFloat()
+                        .coerceIn(binding.sliderTempo.valueFrom, binding.sliderTempo.valueTo)
+                    if (binding.sliderTempo.value != baseBpm) {
+                        binding.sliderTempo.value = baseBpm
+                    }
+                    binding.tvTempoValue.text = "${baseBpm.toInt()} BPM"
                 }
             }
         }
@@ -183,10 +254,21 @@ class ScoreViewerFragment : Fragment() {
 
         viewLifecycleOwner.lifecycleScope.launch {
             viewModel.playbackState.collect { state ->
-                binding.btnPlay.text = when (state) {
-                    ScorePlayer.PlaybackState.PLAYING -> "⏸ Pause"
-                    ScorePlayer.PlaybackState.PAUSED -> "▶ Resume"
-                    ScorePlayer.PlaybackState.STOPPED -> "▶ Play"
+                when (state) {
+                    ScorePlayer.PlaybackState.PLAYING -> {
+                        binding.btnPlay.visibility = View.GONE
+                        binding.btnPause.visibility = View.VISIBLE
+                    }
+                    ScorePlayer.PlaybackState.PAUSED -> {
+                        binding.btnPlay.text = "▶ Resume"
+                        binding.btnPlay.visibility = View.VISIBLE
+                        binding.btnPause.visibility = View.GONE
+                    }
+                    ScorePlayer.PlaybackState.STOPPED -> {
+                        binding.btnPlay.text = "▶ Play"
+                        binding.btnPlay.visibility = View.VISIBLE
+                        binding.btnPause.visibility = View.GONE
+                    }
                 }
             }
         }
@@ -227,6 +309,90 @@ class ScoreViewerFragment : Fragment() {
                 binding.btnFingering.text = if (visible) "1-2-3 ✓" else "1-2-3"
             }
         }
+
+        // ── Practice mode observers ──────────────────────────────────────────
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.loopEnabled.collect { enabled ->
+                val goldColor = android.graphics.Color.parseColor("#C9A84C")
+                val ivoryColor = android.graphics.Color.parseColor("#F4E4C1")
+                if (enabled) {
+                    binding.btnLoopToggle.text = "Loop ON"
+                    binding.btnLoopToggle.setTextColor(goldColor)
+                    binding.btnLoopStart.visibility = android.view.View.VISIBLE
+                    binding.btnLoopEnd.visibility = android.view.View.VISIBLE
+                } else {
+                    binding.btnLoopToggle.text = "Loop"
+                    binding.btnLoopToggle.setTextColor(ivoryColor)
+                    binding.btnLoopStart.visibility = android.view.View.GONE
+                    binding.btnLoopEnd.visibility = android.view.View.GONE
+                    binding.tvLoopInfo.text = ""
+                }
+            }
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.loopStartMeasure.collect { start ->
+                if (start > 0) {
+                    binding.btnLoopStart.text = "A: m$start"
+                    updateLoopInfo()
+                }
+            }
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.loopEndMeasure.collect { end ->
+                if (end > 0) {
+                    binding.btnLoopEnd.text = "B: m$end"
+                    updateLoopInfo()
+                }
+            }
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.loopPassCount.collect { count ->
+                if (viewModel.loopEnabled.value && count > 0) {
+                    updateLoopInfo()
+                }
+            }
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.countInEnabled.collect { enabled ->
+                val goldColor = android.graphics.Color.parseColor("#C9A84C")
+                val ivoryColor = android.graphics.Color.parseColor("#F4E4C1")
+                binding.btnCountIn.text = if (enabled) "Count-in ON" else "Count-in"
+                binding.btnCountIn.setTextColor(if (enabled) goldColor else ivoryColor)
+            }
+        }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.tempoRampEnabled.collect { enabled ->
+                val goldColor = android.graphics.Color.parseColor("#C9A84C")
+                val ivoryColor = android.graphics.Color.parseColor("#F4E4C1")
+                binding.btnTempoRamp.text = if (enabled) "Tempo+ ON" else "Tempo+"
+                binding.btnTempoRamp.setTextColor(if (enabled) goldColor else ivoryColor)
+                val vis = if (enabled) android.view.View.VISIBLE else android.view.View.GONE
+                binding.tvRampStep.visibility = vis
+                binding.btnRampLess.visibility = vis
+                binding.btnRampMore.visibility = vis
+                if (enabled) {
+                    binding.tvRampStep.text = "+%.0f%%/pass".format(viewModel.tempoRampStep.value * 100)
+                }
+            }
+        }
+    }
+
+    private fun updateLoopInfo() {
+        val start = viewModel.loopStartMeasure.value
+        val end = viewModel.loopEndMeasure.value
+        val passes = viewModel.loopPassCount.value
+        val sb = StringBuilder()
+        if (start > 0 && end > 0) {
+            sb.append("m$start-$end")
+            if (passes > 0) sb.append(" | Pass $passes")
+        }
+        binding.tvLoopInfo.text = sb.toString()
     }
 
     private fun formatTranspose(steps: Int): String = when {

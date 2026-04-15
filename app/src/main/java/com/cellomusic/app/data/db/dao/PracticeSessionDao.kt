@@ -56,5 +56,45 @@ interface PracticeSessionDao {
     @Query("SELECT COUNT(*) FROM practice_sessions")
     suspend fun getCount(): Int
 
+    // ── Achievement-support queries ──────────────────────────────────────
+
+    /** Longest single session ever, in minutes (0 if no sessions). */
+    @Query("SELECT IFNULL(MAX(durationMin), 0) FROM practice_sessions")
+    suspend fun getMaxSingleSessionMinutes(): Int
+
+    /** Lifetime total minutes across all sessions. */
+    @Query("SELECT IFNULL(SUM(durationMin), 0) FROM practice_sessions")
+    suspend fun getLifetimeMinutes(): Int
+
+    /** How many sessions have a non-zero BPM recorded (metronome used). */
+    @Query("SELECT COUNT(*) FROM practice_sessions WHERE bpm > 0")
+    suspend fun countMetronomeSessions(): Int
+
+    /** How many sessions the user rated 5/5. */
+    @Query("SELECT COUNT(*) FROM practice_sessions WHERE selfEval >= 5")
+    suspend fun countFiveStarSessions(): Int
+
+    /** Number of distinct non-empty categories practiced. */
+    @Query("SELECT COUNT(DISTINCT category) FROM practice_sessions WHERE category <> ''")
+    suspend fun countDistinctCategories(): Int
+
+    /** Total lifetime minutes for one category. */
+    @Query("SELECT IFNULL(SUM(durationMin), 0) FROM practice_sessions WHERE category = :category")
+    suspend fun getLifetimeMinutesByCategory(category: String): Int
+
+    /** Total minutes grouped by category in a date range. */
+    @Query("""
+        SELECT category, SUM(durationMin) AS totalMin
+        FROM practice_sessions
+        WHERE timestampMs BETWEEN :startMs AND :endMs
+        GROUP BY category ORDER BY totalMin DESC
+    """)
+    suspend fun getCategoryTotals(startMs: Long, endMs: Long): List<CategoryTotal>
+
+    /** Session count in a date range. */
+    @Query("SELECT AVG(selfEval) FROM practice_sessions WHERE timestampMs BETWEEN :startMs AND :endMs")
+    suspend fun getAvgSelfEvalInRange(startMs: Long, endMs: Long): Float?
+
     data class DailyTotal(val dayKey: Long, val totalMin: Int)
+    data class CategoryTotal(val category: String, val totalMin: Int)
 }

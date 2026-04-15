@@ -272,14 +272,24 @@
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_play"
-                android:layout_width="120dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="▶ Play"
                 android:textColor="@color/oak_deep"
                 android:textStyle="bold"
-                android:layout_marginHorizontal="8dp"
+                android:layout_marginEnd="8dp"
                 app:backgroundTint="@color/antique_gold"
                 app:cornerRadius="8dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_pause"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="⏸ Pause"
+                android:textColor="@color/aged_ivory"
+                android:visibility="gone"
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
 
         </LinearLayout>
 
@@ -305,19 +315,19 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:valueFrom="0.25"
-                android:valueTo="2.0"
-                android:value="1.0"
-                android:stepSize="0.05"
+                android:valueFrom="20"
+                android:valueTo="200"
+                android:value="120"
+                android:stepSize="1"
                 app:thumbColor="@color/antique_gold"
                 app:trackColorActive="@color/antique_gold"
                 app:trackColorInactive="@color/antique_gold_dim" />
 
             <TextView
                 android:id="@+id/tv_tempo_value"
-                android:layout_width="50dp"
+                android:layout_width="70dp"
                 android:layout_height="wrap_content"
-                android:text="100%"
+                android:text="120 BPM"
                 android:textSize="13sp"
                 android:textColor="@color/aged_ivory_dim"
                 android:fontFamily="serif"
@@ -413,6 +423,146 @@
                 android:textSize="18sp"
                 android:textColor="@color/aged_ivory"
                 android:padding="0dp"
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
+
+        </LinearLayout>
+
+        <!-- Divider -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginVertical="8dp"
+            android:background="@color/antique_gold_dim" />
+
+        <!-- Practice Mode: Loop + Count-in + Tempo Ramp -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="PRACTICE MODE"
+            android:textSize="10sp"
+            android:letterSpacing="0.12"
+            android:textColor="@color/antique_gold_dim"
+            android:fontFamily="serif"
+            android:layout_marginBottom="4dp" />
+
+        <!-- Loop controls row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_loop_toggle"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="Loop"
+                android:textSize="12sp"
+                android:textColor="@color/aged_ivory"
+                android:layout_marginEnd="4dp"
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_loop_start"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="A:"
+                android:textSize="12sp"
+                android:textColor="@color/aged_ivory"
+                android:layout_marginEnd="4dp"
+                android:visibility="gone"
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_loop_end"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="B:"
+                android:textSize="12sp"
+                android:textColor="@color/aged_ivory"
+                android:layout_marginEnd="4dp"
+                android:visibility="gone"
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
+
+            <TextView
+                android:id="@+id/tv_loop_info"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textSize="12sp"
+                android:textColor="@color/antique_gold_dim"
+                android:fontFamily="serif"
+                android:gravity="end" />
+
+        </LinearLayout>
+
+        <!-- Count-in + Tempo ramp row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="4dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_count_in"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="Count-in"
+                android:textSize="12sp"
+                android:textColor="@color/aged_ivory"
+                android:layout_marginEnd="4dp"
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_tempo_ramp"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="Tempo+"
+                android:textSize="12sp"
+                android:textColor="@color/aged_ivory"
+                android:layout_marginEnd="4dp"
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
+
+            <TextView
+                android:id="@+id/tv_ramp_step"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="+5%/pass"
+                android:textSize="11sp"
+                android:textColor="@color/antique_gold_dim"
+                android:fontFamily="serif"
+                android:visibility="gone"
+                android:layout_marginEnd="4dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_ramp_less"
+                android:layout_width="32dp"
+                android:layout_height="28dp"
+                android:text="−"
+                android:textSize="14sp"
+                android:textColor="@color/aged_ivory"
+                android:padding="0dp"
+                android:visibility="gone"
+                android:layout_marginEnd="2dp"
+                app:strokeColor="@color/antique_gold_dim"
+                style="@style/Widget.LOTS.Button" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_ramp_more"
+                android:layout_width="32dp"
+                android:layout_height="28dp"
+                android:text="+"
+                android:textSize="14sp"
+                android:textColor="@color/aged_ivory"
+                android:padding="0dp"
+                android:visibility="gone"
                 app:strokeColor="@color/antique_gold_dim"
                 style="@style/Widget.LOTS.Button" />
 
