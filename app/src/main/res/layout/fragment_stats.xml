@@ -25,6 +25,13 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 
+        <!-- Daily XP goal ring (auto-targeted from 7-day rolling average). -->
+        <com.cellomusic.app.ui.journal.view.DailyGoalRingView
+            android:id="@+id/daily_goal_ring"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp" />
+
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"

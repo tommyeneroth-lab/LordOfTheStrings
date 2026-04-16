@@ -65,6 +65,19 @@ class StatsViewModel(app: Application) : AndroidViewModel(app) {
     private val _categoryData = MutableStateFlow<Map<String, Int>>(emptyMap())
     val categoryData: StateFlow<Map<String, Int>> = _categoryData
 
+    // ── Daily XP goal ring ──────────────────────────────────────
+    /**
+     * XP today + auto-computed target (in XP). Target is 10× the rolling
+     * 7-day average minutes, rounded to the nearest 50 — gives a ring that
+     * asks for "a bit more than your usual day" without being punishing.
+     * Set to 0 when there isn't enough history (< 2 days of practice in
+     * the last week) so the ring renders a friendly placeholder instead
+     * of a random target based on one lucky session.
+     */
+    data class DailyGoal(val todayXp: Int, val targetXp: Int)
+    private val _dailyGoal = MutableStateFlow(DailyGoal(0, 0))
+    val dailyGoal: StateFlow<DailyGoal> = _dailyGoal
+
     // ── Sessions for a tapped heatmap day ───────────────────────
     private val _daySessionsInfo = MutableStateFlow<DayInfo?>(null)
     val daySessionsInfo: StateFlow<DayInfo?> = _daySessionsInfo
@@ -81,15 +94,74 @@ class StatsViewModel(app: Application) : AndroidViewModel(app) {
             val now = Calendar.getInstance()
             val endMs = now.timeInMillis
 
-            // Calendar: last 6 months of daily totals
-            val calStart = Calendar.getInstance().apply { add(Calendar.MONTH, -6) }
-            val totals = journalRepo.getDailyTotals(calStart.timeInMillis, endMs)
+            // Calendar: last 3 months of daily totals, bucketed by LOCAL day.
+            //
+            // We can't use the SQL `timestampMs / 86400000` trick here: that
+            // buckets by UTC day, but CalendarHeatmapView draws cells at
+            // local-midnight (Calendar.getInstance()). For anyone east or
+            // west of UTC the two keysets miss each other and the heatmap
+            // stays blank no matter how much they've practiced. Instead we
+            // pull raw sessions for the range and bucket by local-day here,
+            // using the exact same Calendar rounding the view uses.
+            val calStart = Calendar.getInstance().apply { add(Calendar.MONTH, -3) }
+            val sessions = journalRepo.getSessionsInRange(calStart.timeInMillis, endMs).first()
             val map = mutableMapOf<Long, Int>()
-            for (t in totals) {
-                val dayMs = t.dayKey * 86_400_000L
-                map[dayMs] = t.totalMin
+            val bucketCal = Calendar.getInstance()
+            for (s in sessions) {
+                bucketCal.timeInMillis = s.timestampMs
+                bucketCal.set(Calendar.HOUR_OF_DAY, 0)
+                bucketCal.set(Calendar.MINUTE, 0)
+                bucketCal.set(Calendar.SECOND, 0)
+                bucketCal.set(Calendar.MILLISECOND, 0)
+                val dayMs = bucketCal.timeInMillis
+                map[dayMs] = (map[dayMs] ?: 0) + s.durationMin
             }
             _calendarData.value = map
+
+            // ── Daily goal ring ──
+            // Today's minutes (local day) come straight out of the bucketed
+            // map we just built. Target = 10 × rolling 7-day average minutes,
+            // rounded to nearest 50 XP. We need at least 2 days of practice
+            // history in the last 7 to set a meaningful target — otherwise
+            // a single heroic session would set a target nobody can hit.
+            val todayCal = Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+            }
+            val todayMs = todayCal.timeInMillis
+            val todayMinutes = map[todayMs] ?: 0
+            val todayXp = todayMinutes * 10
+
+            val sevenAgo = Calendar.getInstance().apply {
+                timeInMillis = todayMs
+                add(Calendar.DAY_OF_YEAR, -7)
+            }
+            // Count days in the last 7 that had any practice, and their total
+            // minutes. Average is taken over 7 (not practicedDays) so rest
+            // days drag the target down — matches how the user actually
+            // experiences their week.
+            var last7TotalMinutes = 0
+            var last7PracticedDays = 0
+            val scanCal = Calendar.getInstance().apply { timeInMillis = sevenAgo.timeInMillis }
+            for (i in 0 until 7) {
+                val dayMs = scanCal.timeInMillis
+                val mins = map[dayMs] ?: 0
+                if (mins > 0) {
+                    last7TotalMinutes += mins
+                    last7PracticedDays++
+                }
+                scanCal.add(Calendar.DAY_OF_YEAR, 1)
+            }
+            val targetXp = if (last7PracticedDays >= 2) {
+                val avgMinutes = last7TotalMinutes / 7f
+                val rawXp = (avgMinutes * 10f).toInt()
+                // Round up to nearest 50, and never below 100 so the target
+                // is psychologically a "goal" rather than a trivial bar.
+                ((rawXp + 49) / 50 * 50).coerceAtLeast(100)
+            } else {
+                0 // placeholder state in the view
+            }
+            _dailyGoal.value = DailyGoal(todayXp = todayXp, targetXp = targetXp)
 
             // ── Weekly summary ──
             val weekStart = Calendar.getInstance().apply {

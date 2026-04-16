@@ -113,6 +113,29 @@ class GamificationRepository(private val dao: GamificationDao) {
         return bonus
     }
 
+    /** Add an arbitrary bonus (comeback, variety, PB, etc.). Returns the bonus. */
+    suspend fun addBonusPoints(bonus: Int): Int {
+        if (bonus <= 0) return 0
+        dao.addPointsAndMinutes(bonus, 0)
+        return bonus
+    }
+
+    /**
+     * Whole-day gap since the user last logged a session. Read before
+     * updateStreak() mutates lastPracticeDateMs, used to trigger the
+     * comeback bonus when someone returns after a break of 3+ days.
+     *
+     * Returns -1 if the user has never practiced before, 0 if they
+     * practiced today (including just now).
+     */
+    suspend fun getDaysSinceLastPractice(): Long {
+        val profile = dao.getProfileSync() ?: return -1L
+        if (profile.lastPracticeDateMs == 0L) return -1L
+        val today = dayStart(System.currentTimeMillis())
+        val lastDay = dayStart(profile.lastPracticeDateMs)
+        return (today - lastDay) / 86_400_000L
+    }
+
     private fun dayStart(ms: Long): Long {
         val cal = Calendar.getInstance().apply {
             timeInMillis = ms

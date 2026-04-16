@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.*
 import android.util.AttributeSet
 import android.view.View
+import com.cellomusic.app.domain.gamification.LevelTitles
 
 /**
  * Custom View showing the player's level and XP progress bar.
@@ -64,8 +65,8 @@ class LevelProgressView @JvmOverloads constructor(
         // Background
         canvas.drawRoundRect(0f, 0f, w, h, 8 * dp, 8 * dp, bgPaint)
 
-        // Level text
-        val levelText = "Level $level"
+        // Level text + title tier (e.g. "Level 12 · Journeyman").
+        val levelText = LevelTitles.formatLevelLine(level)
         canvas.drawText(levelText, 12 * dp, 30 * dp, levelTextPaint)
 
         // Points text

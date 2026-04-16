@@ -18,6 +18,7 @@ import com.cellomusic.app.domain.achievement.AchievementCatalog
 import com.cellomusic.app.ui.journal.view.AchievementGridView
 import com.cellomusic.app.ui.journal.view.CalendarHeatmapView
 import com.cellomusic.app.ui.journal.view.CategoryBreakdownView
+import com.cellomusic.app.ui.journal.view.DailyGoalRingView
 import com.cellomusic.app.ui.journal.view.LevelProgressView
 import com.cellomusic.app.ui.journal.view.StreakBadgeView
 import com.cellomusic.app.ui.journal.view.TempoGraphView
@@ -39,6 +40,7 @@ class StatsFragment : Fragment() {
 
         val levelView = view.findViewById<LevelProgressView>(R.id.level_progress)
         val streakBadge = view.findViewById<StreakBadgeView>(R.id.streak_badge)
+        val dailyGoalRing = view.findViewById<DailyGoalRingView>(R.id.daily_goal_ring)
         val calendarView = view.findViewById<CalendarHeatmapView>(R.id.calendar_heatmap)
         val tempoGraph = view.findViewById<TempoGraphView>(R.id.tempo_graph)
         val spinnerPiece = view.findViewById<Spinner>(R.id.spinner_tempo_piece)
@@ -78,6 +80,14 @@ class StatsFragment : Fragment() {
                     }
                     lastStreakSeen = it.currentStreakDays
                 }
+            }
+        }
+
+        // Daily XP goal ring — recomputed every loadData() call (on tab open)
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.dailyGoal.collect { g ->
+                dailyGoalRing.todayXp = g.todayXp
+                dailyGoalRing.targetXp = g.targetXp
             }
         }
 
@@ -145,13 +155,13 @@ class StatsFragment : Fragment() {
             viewModel.daySessionsInfo.collect { info ->
                 if (info != null && info.totalMinutes > 0) {
                     dayDetailCard.visibility = View.VISIBLE
-                    val dateStr = SimpleDateFormat("EEEE, MMM d", Locale.getDefault()).format(Date(info.dayMs))
+                    val dateStr = SimpleDateFormat("EEEE, MMM d", Locale.ENGLISH).format(Date(info.dayMs))
                     tvDayTitle.text = "$dateStr — ${formatDuration(info.totalMinutes)}"
                     val pieces = if (info.pieces.isNotEmpty()) info.pieces.joinToString(", ") else "Free practice"
                     tvDayDetail.text = "${info.sessionCount} session${if (info.sessionCount != 1) "s" else ""} · $pieces"
                 } else if (info != null) {
                     dayDetailCard.visibility = View.VISIBLE
-                    val dateStr = SimpleDateFormat("EEEE, MMM d", Locale.getDefault()).format(Date(info.dayMs))
+                    val dateStr = SimpleDateFormat("EEEE, MMM d", Locale.ENGLISH).format(Date(info.dayMs))
                     tvDayTitle.text = dateStr
                     tvDayDetail.text = "No practice this day"
                 } else {

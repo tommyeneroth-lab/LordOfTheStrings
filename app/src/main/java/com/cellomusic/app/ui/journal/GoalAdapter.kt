@@ -18,7 +18,7 @@ class GoalAdapter(
     private val onDelete: ((PracticeGoalEntity) -> Unit)?
 ) : ListAdapter<PracticeGoalEntity, GoalAdapter.VH>(DIFF) {
 
-    private val dateFormat = SimpleDateFormat("dd MMM", Locale.getDefault())
+    private val dateFormat = SimpleDateFormat("dd MMM", Locale.ENGLISH)
 
     inner class VH(view: View) : RecyclerView.ViewHolder(view) {
         val tvTitle: TextView = view.findViewById(R.id.tv_goal_title)

@@ -21,12 +21,19 @@ class CalendarHeatmapView @JvmOverloads constructor(
     var onDayTapped: ((dayMs: Long, minutes: Int) -> Unit)? = null
 
     private val dp = context.resources.displayMetrics.density
-    private val cellSize = 14f * dp
     private val cellGap = 2f * dp
+    // 13 weeks ≈ 3 months — keeps the grid dense and legible on phones
+    // without scrolling into history nobody revisits.
+    private val weeksShown = 13
+
+    // Cell size is computed in onMeasure from the available width so the
+    // whole 26-week grid fits portrait phones without horizontal scroll.
+    // Floor ensures readability on very narrow screens; we'll still show
+    // 26 weeks but shrink cells (down to ~8dp) rather than clip columns.
+    private var cellSize = 14f * dp
 
     // Map of day-of-year (0–365) to minutes practiced
     private var dayData = mapOf<Long, Int>() // dayStartMs -> minutes
-    private var maxMinutes = 60
 
     private val emptyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF1C1C1C.toInt() }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -57,16 +64,25 @@ class CalendarHeatmapView @JvmOverloads constructor(
         strokeWidth = 2f * dp
     }
 
-    // Gold gradient: darker → brighter
+    // Gold gradient: any practice at all jumps to a clearly-visible tone,
+    // so a 10-minute session doesn't blend into the empty background. The
+    // darkest "barely-practiced" tone used to be within a few shades of the
+    // empty-cell colour — we dropped it. Tiers now use fixed minute
+    // thresholds (below) rather than a ratio against the user's best day,
+    // so one 90-min session doesn't make every other day look faint.
     private val goldLevels = intArrayOf(
-        0xFF2A2210.toInt(), // barely practiced
-        0xFF5C4A1E.toInt(), // light
-        0xFF8A6E2A.toInt(), // medium
-        0xFFC9A84C.toInt(), // good
-        0xFFD4A42A.toInt()  // excellent (60+ min)
+        0xFF8A6E2A.toInt(), // tier 0 — any session (≥1 min)
+        0xFFA88A3A.toInt(), // tier 1 — ≥ 20 min
+        0xFFC9A84C.toInt(), // tier 2 — ≥ 45 min
+        0xFFE0BE58.toInt(), // tier 3 — ≥ 75 min
+        0xFFF4D464.toInt()  // tier 4 — ≥ 120 min
     )
+    private val goldThresholds = intArrayOf(1, 20, 45, 75, 120)
 
-    private val dayLabels = arrayOf("", "Mon", "", "Wed", "", "Fri", "")
+    // Row 0 is Monday, so Mon/Wed/Fri live at indices 0/2/4 — not 1/3/5 as
+    // they did before. The old offsets placed labels one row below their
+    // actual day, making Mon look like it labelled Tuesday and so on.
+    private val dayLabels = arrayOf("Mon", "", "Wed", "", "Fri", "", "")
 
     // Cell positions for tap detection: maps index -> (x, y, dayMs)
     private val cellPositions = mutableListOf<CellInfo>()
@@ -76,11 +92,14 @@ class CalendarHeatmapView @JvmOverloads constructor(
     private var tooltipDayMs: Long? = null
     private var tooltipX = 0f
     private var tooltipY = 0f
-    private val dateFormat = SimpleDateFormat("EEE, MMM d", Locale.getDefault())
+    // Locale.ENGLISH forces English weekday/month names in the tooltip
+    // regardless of the device's system language — matches the rest of the
+    // app's copy (the Mon/Wed/Fri row labels etc.) instead of suddenly
+    // reading "mån, okt 20" on a Swedish-locale phone.
+    private val dateFormat = SimpleDateFormat("EEE, MMM d", Locale.ENGLISH)
 
     fun setData(dailyMinutes: Map<Long, Int>) {
         dayData = dailyMinutes
-        maxMinutes = (dailyMinutes.values.maxOrNull() ?: 60).coerceAtLeast(1)
         tooltipDayMs = null
         invalidate()
     }
@@ -95,6 +114,15 @@ class CalendarHeatmapView @JvmOverloads constructor(
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
+        // Derive cell size from the available width so the whole 26-week
+        // grid fits portrait phones. Labels take ~28dp on the left; the
+        // rest divides evenly across the columns.
+        val labelReserve = 28f * dp
+        val available = (w - labelReserve).coerceAtLeast(1f)
+        val fittedCell = (available - cellGap * (weeksShown - 1)) / weeksShown
+        // Clamp: never smaller than 8dp (unreadable) and never bigger than
+        // 16dp (overly chunky on tablets / landscape).
+        cellSize = fittedCell.coerceIn(8f * dp, 16f * dp)
         // 7 rows (days of week) + label space + tooltip room
         val h = ((cellSize + cellGap) * 7 + 46 * dp).toInt()
         setMeasuredDimension(w, h)
@@ -152,23 +180,34 @@ class CalendarHeatmapView @JvmOverloads constructor(
             }
         }
 
-        // Draw 26 weeks of cells (approx 6 months)
-        val cal = Calendar.getInstance()
-        // Go back 25 weeks from today
-        cal.add(Calendar.WEEK_OF_YEAR, -25)
-        cal.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
-        cal.set(Calendar.HOUR_OF_DAY, 0)
-        cal.set(Calendar.MINUTE, 0)
-        cal.set(Calendar.SECOND, 0)
-        cal.set(Calendar.MILLISECOND, 0)
+        // Draw [weeksShown] weeks of cells (13 ≈ 3 months).
+        //
+        // We force firstDayOfWeek=MONDAY *before* rolling back 25 weeks so
+        // that the subsequent `set(DAY_OF_WEEK, MONDAY)` doesn't bounce us
+        // into a different calendar week on locales that default to
+        // Sunday-first (US, JP, …). With firstDayOfWeek=MONDAY, the
+        // current week's Monday is always in the same week, so the rewind
+        // lands cleanly on a Monday 25 weeks ago and each row is
+        // Mon → Tue → Wed → … → Sun.
+        val cal = Calendar.getInstance().apply {
+            firstDayOfWeek = Calendar.MONDAY
+            add(Calendar.WEEK_OF_YEAR, -(weeksShown - 1))
+            set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
 
-        val today = Calendar.getInstance()
-        today.set(Calendar.HOUR_OF_DAY, 0)
-        today.set(Calendar.MINUTE, 0)
-        today.set(Calendar.SECOND, 0)
-        today.set(Calendar.MILLISECOND, 0)
+        val today = Calendar.getInstance().apply {
+            firstDayOfWeek = Calendar.MONDAY
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
 
-        for (week in 0 until 26) {
+        for (week in 0 until weeksShown) {
             for (dayOfWeek in 0 until 7) {
                 if (cal.timeInMillis > today.timeInMillis) {
                     cal.add(Calendar.DAY_OF_YEAR, 1)
@@ -184,8 +223,13 @@ class CalendarHeatmapView @JvmOverloads constructor(
                 if (minutes == 0) {
                     cellPaint.color = emptyPaint.color
                 } else {
-                    val ratio = (minutes.toFloat() / maxMinutes).coerceIn(0f, 1f)
-                    val idx = (ratio * (goldLevels.size - 1)).toInt().coerceIn(0, goldLevels.size - 1)
+                    // Fixed minute thresholds, not a ratio. One 90-minute
+                    // day no longer drags every 15-minute day into the
+                    // "barely visible" bucket.
+                    var idx = 0
+                    for (i in goldThresholds.indices) {
+                        if (minutes >= goldThresholds[i]) idx = i
+                    }
                     cellPaint.color = goldLevels[idx]
                 }
 

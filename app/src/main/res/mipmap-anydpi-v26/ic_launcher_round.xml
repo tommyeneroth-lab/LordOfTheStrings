@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Round variant: same vector foreground so the silhouette sits correctly
+  inside whatever mask the launcher applies. Matching blue background so
+  both icon variants look identical under any launcher style.
+-->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@android:color/black" />
-    <foreground android:drawable="@mipmap/ic_launcher_round" />
+    <background android:drawable="@mipmap/ic_launcher_adaptive_back" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
     <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
 </adaptive-icon>

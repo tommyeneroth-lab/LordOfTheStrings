@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  The old foreground (ic_launcher_adaptive_fore.png) was an entire styled
+  app icon — blue rounded square + shadow + logo — occupying only ~40%
+  of the 108dp canvas. Launchers mask adaptive icons down to their shape
+  (circle on Pixel), so all you saw was a tiny logo lost inside a big
+  blue disc, which reads as "the default icon". Switched to the vector
+  foreground in /drawable, which is designed correctly for the 72dp
+  safe-zone convention.
+-->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@mipmap/ic_launcher_adaptive_back"/>
-    <foreground android:drawable="@mipmap/ic_launcher_adaptive_fore"/>
+    <foreground android:drawable="@drawable/ic_launcher_foreground"/>
     <monochrome android:drawable="@drawable/ic_launcher_monochrome"/>
 </adaptive-icon>

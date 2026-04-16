@@ -12,6 +12,7 @@ import android.media.MediaPlayer
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.io.FileOutputStream
 
@@ -83,6 +84,14 @@ class ScorePlayer(private val context: Context) {
     // NOTE_ON event causes GC pressure in a timing-sensitive loop.
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    /**
+     * Serializes setTempoMultiplier / setTranspose so rapid slider releases
+     * can't interleave and leave two CelloSynthesizers racing against each
+     * other on the same AudioTrack lifecycle.
+     */
+    private val reencodeMutex = kotlinx.coroutines.sync.Mutex()
+    private val controlScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+
     fun setTempoMultiplier(multiplier: Float) {
         // Accept a wider range so the BPM slider can go down to 20 BPM
         // (that's ~0.17× on a 120-base score) and up to 200 BPM on slow
@@ -91,40 +100,40 @@ class ScorePlayer(private val context: Context) {
         tempoMultiplier = multiplier.coerceIn(0.1f, 4.0f)
         baseTempoMultiplier = tempoMultiplier
         val score = currentScore ?: return
-        val wasPlaying = _playbackState.value == PlaybackState.PLAYING
-        val savedTick = if (wasPlaying) estimateCurrentTick() else pausedAtTick
-        if (wasPlaying) {
-            stopPlayback()
-            // Wait (bounded) for the old coroutine's finally block to release
-            // its CelloSynthesizer/AudioTrack before we build a new one.
-            // Without this, rapid tempo changes can race the audio pipeline
-            // teardown and crash (e.g. slider release near 200 BPM).
-            waitForPlaybackCleanup()
-        }
-        encodeResult = encoder.encode(score, tempoMultiplier, transposeSteps)
-        pausedAtTick = savedTick
-        if (wasPlaying) {
-            val result = encodeResult ?: return
-            _playbackState.value = PlaybackState.PLAYING
-            try {
-                resumeFrom(result, savedTick)
-            } catch (e: Exception) {
-                // Last-resort safety: if re-start fails for any reason,
-                // keep the app alive and just remain stopped.
-                _playbackState.value = PlaybackState.STOPPED
+        // Re-encoding and teardown are heavy and race-prone; move them off
+        // the main thread (they used to runBlocking {} which could ANR) and
+        // serialise through a mutex so overlapping slider events can't
+        // build two synths at once.
+        controlScope.launch {
+            reencodeMutex.withLock {
+                val wasPlaying = _playbackState.value == PlaybackState.PLAYING
+                val savedTick = if (wasPlaying) estimateCurrentTick() else pausedAtTick
+                if (wasPlaying) {
+                    stopPlayback()
+                    // Wait for the old coroutine's finally block so the old
+                    // CelloSynthesizer has released its AudioTrack before we
+                    // build a new one. Safe to join here — we're off-main.
+                    playbackJob?.let {
+                        try { withTimeoutOrNull(500L) { it.join() } } catch (_: Exception) {}
+                    }
+                }
+                val newResult = try {
+                    encoder.encode(score, tempoMultiplier, transposeSteps)
+                } catch (_: Throwable) { null }
+                encodeResult = newResult
+                pausedAtTick = savedTick
+                if (wasPlaying && newResult != null) {
+                    withContext(Dispatchers.Main) {
+                        _playbackState.value = PlaybackState.PLAYING
+                        try {
+                            resumeFrom(newResult, savedTick)
+                        } catch (_: Exception) {
+                            _playbackState.value = PlaybackState.STOPPED
+                        }
+                    }
+                }
             }
         }
-    }
-
-    /** Blocks up to 500ms for the current playback coroutine's finally block to finish. */
-    private fun waitForPlaybackCleanup() {
-        val job = playbackJob ?: return
-        if (job.isCompleted) return
-        try {
-            runBlocking {
-                withTimeoutOrNull(500L) { job.join() }
-            }
-        } catch (_: Exception) {}
     }
 
     // ── Loop controls ────────────────────────────────────────────────────────
@@ -166,21 +175,32 @@ class ScorePlayer(private val context: Context) {
     fun setTranspose(steps: Int) {
         transposeSteps = steps.coerceIn(-12, 12)
         val score = currentScore ?: return
-        val wasPlaying = _playbackState.value == PlaybackState.PLAYING
-        val savedTick = if (wasPlaying) estimateCurrentTick() else pausedAtTick
-        if (wasPlaying) {
-            stopPlayback()
-            waitForPlaybackCleanup()
-        }
-        encodeResult = encoder.encode(score, tempoMultiplier, transposeSteps)
-        pausedAtTick = savedTick
-        if (wasPlaying) {
-            val result = encodeResult ?: return
-            _playbackState.value = PlaybackState.PLAYING
-            try {
-                resumeFrom(result, savedTick)
-            } catch (e: Exception) {
-                _playbackState.value = PlaybackState.STOPPED
+        // Same serialised, off-main teardown pattern as setTempoMultiplier.
+        controlScope.launch {
+            reencodeMutex.withLock {
+                val wasPlaying = _playbackState.value == PlaybackState.PLAYING
+                val savedTick = if (wasPlaying) estimateCurrentTick() else pausedAtTick
+                if (wasPlaying) {
+                    stopPlayback()
+                    playbackJob?.let {
+                        try { withTimeoutOrNull(500L) { it.join() } } catch (_: Exception) {}
+                    }
+                }
+                val newResult = try {
+                    encoder.encode(score, tempoMultiplier, transposeSteps)
+                } catch (_: Throwable) { null }
+                encodeResult = newResult
+                pausedAtTick = savedTick
+                if (wasPlaying && newResult != null) {
+                    withContext(Dispatchers.Main) {
+                        _playbackState.value = PlaybackState.PLAYING
+                        try {
+                            resumeFrom(newResult, savedTick)
+                        } catch (_: Exception) {
+                            _playbackState.value = PlaybackState.STOPPED
+                        }
+                    }
+                }
             }
         }
     }

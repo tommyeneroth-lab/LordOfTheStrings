@@ -458,7 +458,9 @@ class PracticeJournalFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewModel.gamification.collect { profile ->
                 profile?.let {
-                    binding.tvLevel.text = "Level ${it.currentLevel}"
+                    binding.tvLevel.text =
+                        com.cellomusic.app.domain.gamification.LevelTitles
+                            .formatLevelLine(it.currentLevel)
                     binding.tvPoints.text = "${it.totalPoints} pts"
                     binding.tvStreak.text = "🔥 ${it.currentStreakDays} day streak"
                 }
@@ -476,10 +478,30 @@ class PracticeJournalFragment : Fragment() {
                 )
                 when (event) {
                     is JournalEvent.LevelUp -> {
+                        // New tier → bigger celebration with the title name.
+                        // Plain level-up inside the same tier → short toast.
+                        val msg = if (event.isNewTier) {
+                            "🎉 Level ${event.newLevel} — you're now a ${event.title}!"
+                        } else {
+                            "🎉 Level Up! Level ${event.newLevel} · ${event.title}"
+                        }
+                        Toast.makeText(requireContext(), msg, Toast.LENGTH_LONG).show()
+                        fireworks?.fire(if (event.isNewTier) 8 else 5)
+                    }
+                    is JournalEvent.ComebackBonus -> {
                         Toast.makeText(requireContext(),
-                            "🎉 Level Up! You're now Level ${event.newLevel}!",
+                            "👋 Welcome back! ${event.daysAway} days away — +${event.bonus} bonus XP",
                             Toast.LENGTH_LONG).show()
-                        fireworks?.fire(5)
+                        fireworks?.fire(3)
+                    }
+                    is JournalEvent.VarietyBonus -> {
+                        // Keep the message category-agnostic — we don't always
+                        // have a nice display string for internal codes.
+                        val catLabel = event.category.ifBlank { "this" }.lowercase()
+                        Toast.makeText(requireContext(),
+                            "🎨 Variety bonus! First $catLabel session this week — +${event.bonus} XP",
+                            Toast.LENGTH_LONG).show()
+                        fireworks?.fire(2)
                     }
                     is JournalEvent.GoalCompleted -> {
                         Toast.makeText(requireContext(),
@@ -543,7 +565,7 @@ class PracticeJournalFragment : Fragment() {
 
         val titlePaint = Paint().apply { color = Color.BLACK; textSize = 20f; isFakeBoldText = true }
         val bodyPaint  = Paint().apply { color = Color.DKGRAY; textSize = 12f }
-        val dateFormat = SimpleDateFormat("dd MMM yyyy HH:mm", Locale.getDefault())
+        val dateFormat = SimpleDateFormat("dd MMM yyyy HH:mm", Locale.ENGLISH)
 
         canvas.drawText("Practice Journal", 40f, 60f, titlePaint)
         canvas.drawText("Generated: ${dateFormat.format(Date())}", 40f, 82f, bodyPaint)

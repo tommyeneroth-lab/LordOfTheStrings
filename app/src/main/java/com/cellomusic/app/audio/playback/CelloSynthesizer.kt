@@ -80,7 +80,7 @@ class CelloSynthesizer {
             AudioFormat.ENCODING_PCM_16BIT
         ).coerceAtLeast(BUFFER_FRAMES * 2)
 
-        audioTrack = AudioTrack.Builder()
+        val track = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -97,21 +97,33 @@ class CelloSynthesizer {
             .setBufferSizeInBytes(bufferSize)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
-
-        audioTrack?.play()
+        audioTrack = track
+        track.play()
 
         synthScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
-        synthScope?.launch { renderLoop() }
+        // Pass the track explicitly so renderLoop owns its lifecycle — see
+        // stop() for the rationale.
+        synthScope?.launch { renderLoop(track) }
     }
 
+    /**
+     * Signals the render loop to exit. Does NOT touch the AudioTrack — the
+     * loop itself releases it in its `finally` block. The previous version
+     * released the track here on the calling thread while the render loop
+     * was mid-`audioTrack.write()`, which races at the native layer and
+     * crashes with SIGSEGV (no JVM catch block catches that). This crash
+     * showed up intermittently when the user changed the tempo slider
+     * quickly because each change tears the synth down and rebuilds it.
+     *
+     * Returns immediately; the render loop will exit within one buffer
+     * (~46ms) and clean up the AudioTrack on its own background coroutine.
+     */
     fun stop() {
         isRunning = false
         synthScope?.cancel()
         synthScope = null
-        try {
-            audioTrack?.stop()
-            audioTrack?.release()
-        } catch (_: Exception) {}
+        // Drop the reference so no further note events target this instance,
+        // but let renderLoop() release the underlying AudioTrack.
         audioTrack = null
         synchronized(voiceLock) { voices.clear() }
     }
@@ -141,15 +153,31 @@ class CelloSynthesizer {
         synchronized(voiceLock) { voices.clear() }
     }
 
-    private fun renderLoop() {
+    /**
+     * Render loop owns the AudioTrack's lifecycle. The track reference is
+     * captured at start() time and never nulled from outside — this avoids
+     * the native write-after-release crash that used to occur when stop()
+     * released the track on one thread while this loop was mid-write on
+     * another. When isRunning flips false, we exit, stop, and release the
+     * track here, on this same thread.
+     */
+    private fun renderLoop(track: AudioTrack) {
         val buffer = ShortArray(BUFFER_FRAMES)
-
-        while (isRunning) {
-            // Render one buffer of audio
-            for (i in buffer.indices) {
-                buffer[i] = renderSample()
+        try {
+            while (isRunning) {
+                for (i in buffer.indices) {
+                    buffer[i] = renderSample()
+                }
+                try {
+                    track.write(buffer, 0, buffer.size)
+                } catch (_: IllegalStateException) {
+                    // Track was released or uninitialised — bail out cleanly.
+                    break
+                }
             }
-            audioTrack?.write(buffer, 0, buffer.size)
+        } finally {
+            try { track.stop() } catch (_: Exception) {}
+            try { track.release() } catch (_: Exception) {}
         }
     }
 

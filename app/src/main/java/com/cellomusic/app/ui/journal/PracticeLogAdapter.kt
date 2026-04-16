@@ -32,7 +32,7 @@ class PracticeLogAdapter(
     private val onDeleteRecording: (PracticeSessionEntity) -> Unit = {}
 ) : ListAdapter<PracticeSessionEntity, PracticeLogAdapter.VH>(DIFF) {
 
-    private val dateFormat = SimpleDateFormat("dd MMM  HH:mm", Locale.getDefault())
+    private val dateFormat = SimpleDateFormat("dd MMM  HH:mm", Locale.ENGLISH)
 
     /** Row currently showing the player strip, or null if collapsed. */
     var expandedSessionId: Long? = null

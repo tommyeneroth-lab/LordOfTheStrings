@@ -9,12 +9,23 @@ import com.cellomusic.app.data.db.entity.PracticeSessionEntity
 import com.cellomusic.app.data.db.entity.GamificationEntity
 import com.cellomusic.app.data.repository.*
 import com.cellomusic.app.domain.achievement.AchievementCatalog
+import com.cellomusic.app.domain.gamification.LevelTitles
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 /** Event for one-shot UI triggers (fireworks, toasts, XP bursts). */
 sealed class JournalEvent {
-    data class LevelUp(val newLevel: Int) : JournalEvent()
+    /**
+     * Level-up celebration. [title] is the flavour noun for the new tier
+     * (e.g. "Journeyman"), and [isNewTier] is true when the user crossed
+     * into a fresh title bracket — which the UI uses to decide between a
+     * short "+1" toast and a bigger "new title unlocked" one.
+     */
+    data class LevelUp(val newLevel: Int, val title: String, val isNewTier: Boolean) : JournalEvent()
+    /** Returning after a 3+ day gap — surfaces the comeback bonus. */
+    data class ComebackBonus(val daysAway: Long, val bonus: Int) : JournalEvent()
+    /** Touched a category not practiced in the last 7 days — surfaces the variety bonus. */
+    data class VarietyBonus(val category: String, val bonus: Int) : JournalEvent()
     data class GoalCompleted(val goalIds: List<Long>) : JournalEvent()
     /**
      * Fired on every successful save. Carries [xpEarned] (base + any bonuses
@@ -94,6 +105,18 @@ class PracticeJournalViewModel(app: Application) : AndroidViewModel(app) {
         if (_isRecording.value) stopRecording()
         val recordingPath = _pendingRecordingPath.value
 
+        // Variety bonus eligibility is read BEFORE the session is saved: we
+        // want to know "did this category appear in the last 7 days prior
+        // to this save?" — if the save happened first, the count would
+        // always include today's session (1) and never be zero.
+        val varietyEligible = if (category.isNotBlank()) {
+            val now = System.currentTimeMillis()
+            val sevenDaysAgo = now - 7L * 86_400_000L
+            journalRepo.countSessionsInRangeByCategory(sevenDaysAgo, now, category) == 0
+        } else {
+            false
+        }
+
         // Save session
         val session = journalRepo.saveSession(
             pieceName = pieceName,
@@ -116,6 +139,14 @@ class PracticeJournalViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
 
+        // Read the pre-save gap for the comeback bonus BEFORE updateStreak()
+        // mutates lastPracticeDateMs. 3+ days away → flat 500 XP "welcome back".
+        val daysAway = gamificationRepo.getDaysSinceLastPractice()
+
+        // Snapshot the current level so we can detect both the level-up AND
+        // whether that level crossed into a new title tier.
+        val oldLevel = gamification.value?.currentLevel ?: 0
+
         // Award base points (10 × minutes) and check level-up.
         val basePoints = durationMin * 10
         val leveledUp = gamificationRepo.addSessionPoints(durationMin)
@@ -123,6 +154,25 @@ class PracticeJournalViewModel(app: Application) : AndroidViewModel(app) {
         // Update streak with structured result so UI can surface milestones
         // and the "streak saved!" grace-day feature.
         val streakResult = gamificationRepo.updateStreak()
+
+        // Comeback bonus — only fires on a genuine return from 3+ days off,
+        // not first-ever session (-1) and not same-day re-saves (0–2).
+        var comebackBonus = 0
+        if (daysAway >= 3) {
+            comebackBonus = gamificationRepo.addBonusPoints(500)
+            _events.emit(JournalEvent.ComebackBonus(daysAway, comebackBonus))
+        }
+
+        // Variety bonus — rewards touching a category the user hasn't
+        // practiced in the past 7 days. Flat 200 XP. Keeps the player's
+        // weekly mix honest (scales, technique, repertoire) without
+        // punishing anyone; if you always pick the same thing, the bonus
+        // just never fires.
+        var varietyBonus = 0
+        if (varietyEligible) {
+            varietyBonus = gamificationRepo.addBonusPoints(200)
+            _events.emit(JournalEvent.VarietyBonus(category, varietyBonus))
+        }
 
         // Emit streak-specific UI events and award milestone bonuses.
         var streakBonus = 0
@@ -154,16 +204,24 @@ class PracticeJournalViewModel(app: Application) : AndroidViewModel(app) {
         for (goalId in completedGoals) {
             val bonusLevelUp = gamificationRepo.addGoalBonus()
             if (bonusLevelUp) {
-                val profile = gamification.value
-                _events.emit(JournalEvent.LevelUp(profile?.currentLevel ?: 0))
+                val newLevel = gamification.value?.currentLevel ?: 0
+                _events.emit(JournalEvent.LevelUp(
+                    newLevel = newLevel,
+                    title = LevelTitles.titleFor(newLevel),
+                    isNewTier = LevelTitles.isNewTier(oldLevel, newLevel)
+                ))
             }
         }
         if (completedGoals.isNotEmpty()) {
             _events.emit(JournalEvent.GoalCompleted(completedGoals))
         }
         if (leveledUp) {
-            val profile = gamification.value
-            _events.emit(JournalEvent.LevelUp(profile?.currentLevel ?: 0))
+            val newLevel = gamification.value?.currentLevel ?: 0
+            _events.emit(JournalEvent.LevelUp(
+                newLevel = newLevel,
+                title = LevelTitles.titleFor(newLevel),
+                isNewTier = LevelTitles.isNewTier(oldLevel, newLevel)
+            ))
         }
 
         // Evaluate achievements AFTER all stats have been updated for the
@@ -183,7 +241,16 @@ class PracticeJournalViewModel(app: Application) : AndroidViewModel(app) {
         _pendingRecordingPath.value = null
 
         // Finally, emit the SessionSaved event for the XP burst.
-        val totalXp = basePoints + streakBonus
+        // Comeback bonus rolls into the total (and the XP burst sub-text says
+        // so) when nothing more specific — streak milestone or streak saver —
+        // has claimed the line already.
+        if (comebackBonus > 0 && xpSubText.isEmpty()) {
+            xpSubText = "Welcome back!"
+        }
+        if (varietyBonus > 0 && xpSubText.isEmpty()) {
+            xpSubText = "Fresh focus!"
+        }
+        val totalXp = basePoints + streakBonus + comebackBonus + varietyBonus
         _events.emit(JournalEvent.SessionSaved(xpEarned = totalXp, subText = xpSubText))
     }
 
