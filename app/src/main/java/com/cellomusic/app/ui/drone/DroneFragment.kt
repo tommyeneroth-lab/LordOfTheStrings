@@ -56,6 +56,9 @@ class DroneFragment : Fragment() {
         binding.btnOpenDbMeter.setOnClickListener {
             findNavController().navigate(R.id.action_drone_to_decibel)
         }
+        binding.btnOpenBowCoach.setOnClickListener {
+            findNavController().navigate(R.id.action_drone_to_bow_coach)
+        }
         binding.btnStartDrone.setOnClickListener {
             if (droneRunning) stopDrone() else startDrone()
         }

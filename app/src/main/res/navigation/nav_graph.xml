@@ -65,6 +65,10 @@
             android:id="@+id/action_drone_to_decibel"
             app:destination="@id/decibelMeterFragment" />
 
+        <action
+            android:id="@+id/action_drone_to_bow_coach"
+            app:destination="@id/bowAnalyticsFragment" />
+
     </fragment>
 
     <fragment
@@ -108,5 +112,12 @@
         android:label="Import Score"
         xmlns:tools="http://schemas.android.com/tools"
         tools:layout="@layout/fragment_library" />
+
+    <fragment
+        android:id="@+id/bowAnalyticsFragment"
+        android:name="com.cellomusic.app.ui.bow.BowAnalyticsFragment"
+        android:label="Bow Coach"
+        tools:layout="@layout/fragment_bow_analytics"
+        xmlns:tools="http://schemas.android.com/tools" />
 
 </navigation>

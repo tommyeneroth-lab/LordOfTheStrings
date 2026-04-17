@@ -279,12 +279,28 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_open_bow_coach"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:text="🎻 Bow Coach"
+            android:textSize="13sp"
+            android:textColor="@color/aged_ivory"
+            android:layout_marginTop="8dp"
+            app:strokeColor="@color/antique_gold_dim"
+            app:backgroundTint="@color/oak_panel"
+            app:cornerRadius="6dp"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            app:layout_constraintTop_toBottomOf="@id/btn_open_db_meter"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
         <View
             android:layout_width="0dp"
             android:layout_height="3dp"
             android:layout_marginTop="20dp"
             android:background="@color/antique_gold"
-            app:layout_constraintTop_toBottomOf="@id/btn_open_db_meter"
+            app:layout_constraintTop_toBottomOf="@id/btn_open_bow_coach"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent" />
 
