@@ -278,6 +278,36 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp" />
 
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginVertical="14dp"
+            android:background="@color/antique_gold_dim" />
+
+        <!-- ═══ Export Report ═══ -->
+        <Button
+            android:id="@+id/btn_export_report"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="📄  Export Practice Report"
+            android:textColor="@color/antique_gold"
+            android:textSize="13sp"
+            android:fontFamily="serif"
+            android:letterSpacing="0.08"
+            android:backgroundTint="@color/oak_dark"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Share a PDF summary with your teacher — totals, heatmap, categories, and achievements."
+            android:textSize="11sp"
+            android:textColor="@color/aged_ivory_dim"
+            android:fontFamily="serif"
+            android:gravity="center"
+            android:paddingHorizontal="20dp" />
+
     </LinearLayout>
 
 </ScrollView>

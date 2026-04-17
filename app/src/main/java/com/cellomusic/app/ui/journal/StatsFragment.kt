@@ -6,15 +6,18 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
+import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
 import com.cellomusic.app.R
 import com.cellomusic.app.domain.achievement.AchievementCatalog
+import com.cellomusic.app.export.PracticeReportExporter
 import com.cellomusic.app.ui.journal.view.AchievementGridView
 import com.cellomusic.app.ui.journal.view.CalendarHeatmapView
 import com.cellomusic.app.ui.journal.view.CategoryBreakdownView
@@ -195,7 +198,47 @@ class StatsFragment : Fragment() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
+        // ── Export report button ──
+        val btnExport = view.findViewById<Button>(R.id.btn_export_report)
+        btnExport.setOnClickListener { showExportDialog() }
+
         viewModel.loadData()
+    }
+
+    /**
+     * Lets the user pick a period for the PDF report. We keep this simple —
+     * last 30d, last 90d, or all time. Generating + sharing happens on the
+     * IO dispatcher inside the exporter; we just catch failures and surface
+     * a toast so a missing FileProvider or full disk doesn't crash the tab.
+     */
+    private fun showExportDialog() {
+        val periods = PracticeReportExporter.Period.values()
+        val labels = periods.map { it.label }.toTypedArray()
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Export Practice Report")
+            .setItems(labels) { _, which ->
+                generateAndShare(periods[which])
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun generateAndShare(period: PracticeReportExporter.Period) {
+        val ctx = requireContext().applicationContext
+        Toast.makeText(requireContext(), "Building report…", Toast.LENGTH_SHORT).show()
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val exporter = PracticeReportExporter(ctx)
+                val intent = exporter.exportReport(period)
+                startActivity(intent)
+            } catch (t: Throwable) {
+                Toast.makeText(
+                    requireContext(),
+                    "Export failed: ${t.message ?: "unknown error"}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
     }
 
     private fun formatDuration(minutes: Int): String {
