@@ -1,7 +1,12 @@
 package com.cellomusic.app
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.setupWithNavController
@@ -23,6 +28,17 @@ class MainActivity : AppCompatActivity() {
 
         binding.bottomNavigation.setupWithNavController(navController)
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    REQ_NOTIFICATION_PERMISSION
+                )
+            }
+        }
+
         // Handle BottomNav visibility based on destination
         navController.addOnDestinationChangedListener { _, destination, _ ->
             when (destination.id) {
@@ -41,5 +57,9 @@ class MainActivity : AppCompatActivity() {
                 requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
         }
+    }
+
+    companion object {
+        private const val REQ_NOTIFICATION_PERMISSION = 1001
     }
 }

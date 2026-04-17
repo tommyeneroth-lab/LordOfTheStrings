@@ -252,6 +252,8 @@ class PracticeJournalViewModel(app: Application) : AndroidViewModel(app) {
         }
         val totalXp = basePoints + streakBonus + comebackBonus + varietyBonus
         _events.emit(JournalEvent.SessionSaved(xpEarned = totalXp, subText = xpSubText))
+        // Update home screen widget with fresh data
+        com.cellomusic.app.widget.PracticeWidgetProvider.requestUpdate(getApplication())
     }
 
     /** Clear the recordingPath on a session (file missing, or user tapped 🗑). */

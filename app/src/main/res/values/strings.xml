@@ -22,6 +22,8 @@
     <string name="speed">Speed</string>
     <string name="no_scores">No scores yet.\nTap + to import a score.</string>
 
+    <string name="widget_description">Practice progress: today\'s XP ring and streak count</string>
+
     <string-array name="strain_areas">
         <item>None</item>
         <item>Neck</item>

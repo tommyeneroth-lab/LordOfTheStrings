@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="@drawable/widget_bg"
+    android:padding="10dp">
+
+    <!-- Ring image rendered as bitmap by provider -->
+    <ImageView
+        android:id="@+id/widget_ring"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:scaleType="fitCenter" />
+
+    <!-- Text info column -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginStart="10dp">
+
+        <TextView
+            android:id="@+id/widget_streak"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🔥 0-day streak"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#C9A84C"
+            android:fontFamily="serif" />
+
+        <TextView
+            android:id="@+id/widget_xp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Today: 0 / 100 XP"
+            android:textSize="11sp"
+            android:textColor="#F4E4C1"
+            android:fontFamily="serif"
+            android:layout_marginTop="2dp" />
+
+        <TextView
+            android:id="@+id/widget_level"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Level 1 · Novice"
+            android:textSize="10sp"
+            android:textColor="#8A6E2A"
+            android:fontFamily="serif"
+            android:layout_marginTop="1dp" />
+
+    </LinearLayout>
+
+</LinearLayout>

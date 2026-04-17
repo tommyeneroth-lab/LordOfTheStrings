@@ -14,8 +14,10 @@ import androidx.core.content.ContextCompat
 import androidx.work.*
 import com.cellomusic.app.MainActivity
 import com.cellomusic.app.R
+import com.cellomusic.app.data.db.AppDatabase
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.runBlocking
 
 /**
  * WorkManager worker that fires a daily practice reminder notification.
@@ -46,6 +48,18 @@ class PracticeReminderWorker(
     }
 
     override fun doWork(): Result {
+        // Skip notification if the user already practiced today
+        val dao = AppDatabase.getInstance(applicationContext).practiceSessionDao()
+        val cal = Calendar.getInstance()
+        val endOfDayMs = cal.timeInMillis
+        cal.set(Calendar.HOUR_OF_DAY, 0)
+        cal.set(Calendar.MINUTE, 0)
+        cal.set(Calendar.SECOND, 0)
+        cal.set(Calendar.MILLISECOND, 0)
+        val startOfDayMs = cal.timeInMillis
+        val sessionCount = runBlocking { dao.countSessionsInRange(startOfDayMs, endOfDayMs) }
+        if (sessionCount > 0) return Result.success()
+
         createNotificationChannel()
         showNotification()
         return Result.success()
