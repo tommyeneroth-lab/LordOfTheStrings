@@ -248,12 +248,47 @@
 
         </LinearLayout>
 
+        <!-- Practice Scales entry — sibling tool that borrows the metronome -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_open_scales"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:text="🎵  Practice Scales"
+            android:textColor="@color/antique_gold"
+            android:textSize="14sp"
+            android:letterSpacing="0.06"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginTop="4dp"
+            app:strokeColor="@color/antique_gold_dim"
+            app:cornerRadius="6dp"
+            app:backgroundTint="@color/oak_dark"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            app:layout_constraintTop_toBottomOf="@id/layout_buttons"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <TextView
+            android:id="@+id/tv_scales_hint"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:text="250+ scales, arpeggios, and modes — with tempo tracking."
+            android:textSize="11sp"
+            android:textColor="@color/aged_ivory_dim"
+            android:fontFamily="serif"
+            android:gravity="center"
+            android:paddingHorizontal="28dp"
+            android:paddingTop="4dp"
+            app:layout_constraintTop_toBottomOf="@id/btn_open_scales"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
         <!-- Bottom gold rule -->
         <View
             android:layout_width="0dp"
             android:layout_height="3dp"
             android:background="@color/antique_gold"
-            app:layout_constraintTop_toBottomOf="@id/layout_buttons"
+            android:layout_marginTop="14dp"
+            app:layout_constraintTop_toBottomOf="@id/tv_scales_hint"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent" />
 

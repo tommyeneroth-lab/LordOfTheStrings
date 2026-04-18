@@ -52,6 +52,19 @@
         android:name="com.cellomusic.app.ui.metronome.MetronomeFragment"
         android:label="Metronome"
         tools:layout="@layout/fragment_metronome"
+        xmlns:tools="http://schemas.android.com/tools">
+
+        <action
+            android:id="@+id/action_metronome_to_scale_trainer"
+            app:destination="@id/scaleTrainerFragment" />
+
+    </fragment>
+
+    <fragment
+        android:id="@+id/scaleTrainerFragment"
+        android:name="com.cellomusic.app.ui.scale.ScaleTrainerFragment"
+        android:label="Scale Trainer"
+        tools:layout="@layout/fragment_scale_trainer"
         xmlns:tools="http://schemas.android.com/tools" />
 
     <fragment

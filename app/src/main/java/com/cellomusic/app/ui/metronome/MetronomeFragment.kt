@@ -7,6 +7,8 @@ import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.fragment.findNavController
+import com.cellomusic.app.R
 import com.cellomusic.app.databinding.FragmentMetronomeBinding
 import kotlinx.coroutines.launch
 
@@ -111,6 +113,16 @@ class MetronomeFragment : Fragment() {
                 }
                 override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
             }
+        }
+
+        // Scale Trainer is a sibling practice tool. Stop the clicks before
+        // we leave so this metronome doesn't keep ticking behind the
+        // trainer's own embedded metronome.
+        binding.btnOpenScales.setOnClickListener {
+            viewModel.stop()
+            binding.btnPlayStop.text = "Start"
+            binding.beatIndicator.stop()
+            findNavController().navigate(R.id.action_metronome_to_scale_trainer)
         }
     }
 
