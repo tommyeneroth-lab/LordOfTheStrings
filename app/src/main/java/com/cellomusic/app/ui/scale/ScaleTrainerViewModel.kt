@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.cellomusic.app.audio.metronome.MetronomeEngine
+import com.cellomusic.app.audio.playback.ScorePlayer
 import com.cellomusic.app.data.db.AppDatabase
 import com.cellomusic.app.data.repository.AchievementRepository
 import com.cellomusic.app.data.repository.GamificationRepository
@@ -11,8 +12,10 @@ import com.cellomusic.app.data.repository.JournalRepository
 import com.cellomusic.app.data.repository.StreakResult
 import com.cellomusic.app.domain.achievement.AchievementCatalog
 import com.cellomusic.app.domain.gamification.LevelTitles
+import com.cellomusic.app.domain.model.Score
 import com.cellomusic.app.domain.scale.ScaleDef
 import com.cellomusic.app.domain.scale.ScaleLibrary
+import com.cellomusic.app.domain.scale.ScaleScoreBuilder
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlin.math.max
@@ -59,6 +62,21 @@ class ScaleTrainerViewModel(app: Application) : AndroidViewModel(app) {
     private val _selected = MutableStateFlow<ScaleDef?>(null)
     val selected: StateFlow<ScaleDef?> = _selected
 
+    // ── Score rendering + audio playback ──
+    // Score engraving of the currently selected scale (bass clef, 4/4, eighth
+    // notes).  The fragment feeds this into ScoreCanvasView so the student
+    // reads real notation instead of a text blob.
+    private val _currentScore = MutableStateFlow<Score?>(null)
+    val currentScore: StateFlow<Score?> = _currentScore
+
+    // ScorePlayer owns a CelloSynthesizer and plays the generated score
+    // through Android MIDI / AudioTrack.  We wrap its playback state so the
+    // Listen button can toggle text/icon cleanly.
+    private val scorePlayer = ScorePlayer(app)
+    val isPlayingScore: StateFlow<Boolean> = scorePlayer.playbackState
+        .map { it == ScorePlayer.PlaybackState.PLAYING }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     // ── Session timer ──
     /** Elapsed practice time on the current scale, in milliseconds. */
     private val _elapsedMs = MutableStateFlow(0L)
@@ -93,12 +111,36 @@ class ScaleTrainerViewModel(app: Application) : AndroidViewModel(app) {
         _selected.value = def
         _bpm.value = def.suggestedBpm
         engine.setBpm(def.suggestedBpm)
+        // Switching scale invalidates any in-flight playback of the previous
+        // score — stop it before handing the player a fresh score.
+        scorePlayer.stop()
+        _currentScore.value = ScaleScoreBuilder.buildScore(def)
     }
 
     fun setBpm(newBpm: Int) {
         val clamped = newBpm.coerceIn(20, 300)
         _bpm.value = clamped
         engine.setBpm(clamped)
+        // Generated scores bake in a 120 BPM TempoMark; multiplier scales
+        // relative to that so the audio matches the user's metronome speed.
+        scorePlayer.setTempoMultiplier(clamped / 120f)
+    }
+
+    /**
+     * Toggle audio playback of the engraved scale. Uses the ScorePlayer's
+     * synthesizer — independent of the metronome engine, so a student can
+     * listen to the scale with or without clicks going at the same time.
+     */
+    fun toggleListen() {
+        if (scorePlayer.playbackState.value == ScorePlayer.PlaybackState.PLAYING) {
+            scorePlayer.stop()
+        } else {
+            val score = _currentScore.value ?: return
+            scorePlayer.setTempoMultiplier(_bpm.value / 120f)
+            if (scorePlayer.loadScore(score)) {
+                scorePlayer.play()
+            }
+        }
     }
 
     fun toggleMetronome() {
@@ -210,6 +252,7 @@ class ScaleTrainerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        scorePlayer.stop()
         engine.stop()
         super.onCleared()
     }

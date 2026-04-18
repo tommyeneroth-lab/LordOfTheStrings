@@ -147,39 +147,38 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="NOTES (ASCENDING)"
+                android:text="SCORE"
                 android:textSize="10sp"
                 android:letterSpacing="0.12"
                 android:textColor="@color/antique_gold_dim"
                 android:fontFamily="serif"
-                android:paddingBottom="4dp" />
+                android:paddingBottom="6dp" />
 
-            <TextView
-                android:id="@+id/tv_scale_notes_up"
+            <!--
+              Engraved scale notation.  Height is fixed rather than
+              wrap-content because ScoreCanvasView paints into its
+              available canvas; the number of systems (staff rows) varies
+              with the scale length, and 260dp comfortably holds 2–3
+              systems for a 3-octave scale.
+            -->
+            <com.cellomusic.app.ui.viewer.view.ScoreCanvasView
+                android:id="@+id/score_canvas"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textSize="14sp"
-                android:textColor="@color/aged_ivory"
-                android:fontFamily="serif" />
+                android:layout_height="260dp" />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="NOTES (DESCENDING)"
-                android:textSize="10sp"
-                android:letterSpacing="0.12"
-                android:textColor="@color/antique_gold_dim"
-                android:fontFamily="serif"
-                android:paddingTop="10dp"
-                android:paddingBottom="4dp" />
-
-            <TextView
-                android:id="@+id/tv_scale_notes_down"
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_listen"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textSize="14sp"
-                android:textColor="@color/aged_ivory"
-                android:fontFamily="serif" />
+                android:layout_height="48dp"
+                android:text="🔊  Listen"
+                android:textColor="@color/antique_gold"
+                android:textSize="13sp"
+                android:letterSpacing="0.08"
+                android:layout_marginTop="10dp"
+                app:strokeColor="@color/antique_gold_dim"
+                app:cornerRadius="6dp"
+                app:backgroundTint="@color/oak_dark"
+                style="@style/Widget.Material3.Button.OutlinedButton" />
 
         </LinearLayout>
 

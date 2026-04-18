@@ -21,6 +21,7 @@ import com.cellomusic.app.R
 import com.cellomusic.app.domain.scale.ScaleCategory
 import com.cellomusic.app.domain.scale.ScaleDef
 import com.cellomusic.app.domain.scale.ScaleLibrary
+import com.cellomusic.app.ui.viewer.view.ScoreCanvasView
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.slider.Slider
 import kotlinx.coroutines.launch
@@ -57,8 +58,7 @@ class ScaleTrainerFragment : Fragment() {
         val tvName = view.findViewById<TextView>(R.id.tv_scale_name)
         val tvMeta = view.findViewById<TextView>(R.id.tv_scale_meta)
         val tvDesc = view.findViewById<TextView>(R.id.tv_scale_description)
-        val tvNotesUp = view.findViewById<TextView>(R.id.tv_scale_notes_up)
-        val tvNotesDown = view.findViewById<TextView>(R.id.tv_scale_notes_down)
+        val scoreCanvas = view.findViewById<ScoreCanvasView>(R.id.score_canvas)
         val tvBpm = view.findViewById<TextView>(R.id.tv_bpm_value)
         val tvTimer = view.findViewById<TextView>(R.id.tv_timer)
         val slider = view.findViewById<Slider>(R.id.slider_bpm)
@@ -67,6 +67,7 @@ class ScaleTrainerFragment : Fragment() {
         val btnPlay = view.findViewById<MaterialButton>(R.id.btn_play_stop)
         val btnReset = view.findViewById<MaterialButton>(R.id.btn_reset)
         val btnSave = view.findViewById<MaterialButton>(R.id.btn_save)
+        val btnListen = view.findViewById<MaterialButton>(R.id.btn_listen)
         val tvCount = view.findViewById<TextView>(R.id.tv_catalog_count)
         val beatDots = listOf(
             view.findViewById<View>(R.id.dot_1),
@@ -124,26 +125,38 @@ class ScaleTrainerFragment : Fragment() {
             viewModel.setBpm(viewModel.bpm.value + 1)
         }
 
-        // ── Play / reset / save ──
+        // ── Play / reset / save / listen ──
         btnPlay.setOnClickListener { viewModel.toggleMetronome() }
         btnReset.setOnClickListener { viewModel.resetTimer() }
         btnSave.setOnClickListener {
             // The VM decides "1 minute minimum" etc. — just call it.
             viewModel.saveSession()
         }
+        btnListen.setOnClickListener { viewModel.toggleListen() }
 
-        // ── Observe selected scale ──
+        // ── Observe selected scale (text metadata only; the engraving comes
+        // through currentScore below). ──
         viewLifecycleOwner.lifecycleScope.launch {
             viewModel.selected.collect { def ->
                 if (def != null) {
                     tvName.text = def.name
                     tvMeta.text = "${def.type.category.label} · ${def.difficulty.label} · Suggested ${def.suggestedBpm} BPM"
                     tvDesc.text = def.type.description
-                    tvNotesUp.text = def.ascendingNotes.joinToString("  —  ")
-                    tvNotesDown.text = def.fullPattern
-                        .drop(def.ascendingNotes.size)
-                        .joinToString("  —  ")
                 }
+            }
+        }
+
+        // ── Engrave the currently selected scale into the score canvas. ──
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.currentScore.collect { score ->
+                if (score != null) scoreCanvas.setScore(score)
+            }
+        }
+
+        // ── Listen-button label follows playback state. ──
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.isPlayingScore.collect { playing ->
+                btnListen.text = if (playing) "⏸  Stop" else "🔊  Listen"
             }
         }
 
