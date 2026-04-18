@@ -3,8 +3,12 @@ package com.cellomusic.app.audio.bow
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import org.jtransforms.fft.FloatFFT_1D
 import kotlin.math.abs
 import kotlin.math.sqrt
@@ -49,12 +53,22 @@ class BowAnalyticsEngine {
     fun metricsFlow(): Flow<BowMetrics> = flow {
         val minBuf = AudioRecord.getMinBufferSize(
             SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        if (minBuf <= 0) return@flow   // device cannot honour this config
         val bufSize = maxOf(minBuf, HOP * 4)
         val record = AudioRecord(
             MediaRecorder.AudioSource.MIC,
             SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT, bufSize
         )
+        // If construction failed (permission missing, hardware unavailable) we
+        // must NOT call startRecording — that throws IllegalStateException and
+        // used to crash the fragment.  Bail quietly instead; the VM will just
+        // keep isRunning=true but emit nothing, and the fragment's Stop still
+        // works to clear state.
+        if (record.state != AudioRecord.STATE_INITIALIZED) {
+            record.release()
+            return@flow
+        }
         record.startRecording()
 
         val pcm16 = ShortArray(HOP)
@@ -63,8 +77,17 @@ class BowAnalyticsEngine {
 
         try {
             while (true) {
+                // Cooperatively yield cancellation so stop() ends the loop
+                // promptly rather than waiting for another mic read.
+                currentCoroutineContext().ensureActive()
+
                 val read = record.read(pcm16, 0, HOP)
-                if (read <= 0) continue
+                // Negative values are AudioRecord error codes (ERROR,
+                // ERROR_BAD_VALUE, ERROR_INVALID_OPERATION, ERROR_DEAD_OBJECT).
+                // Spinning on `continue` used to peg the CPU without ever
+                // recovering — break out instead so the fragment can restart.
+                if (read < 0) break
+                if (read == 0) continue
 
                 // Fill ring buffer
                 for (i in 0 until read) {
@@ -133,8 +156,16 @@ class BowAnalyticsEngine {
                 emit(BowMetrics(pressureScore, toneQuality, rms.coerceIn(0f, 1f), isSilent))
             }
         } finally {
-            record.stop()
+            // Guard against stop()/release() throwing when the recorder is
+            // already uninitialised (happens when startRecording failed
+            // earlier in the same process).
+            try { record.stop() } catch (_: IllegalStateException) {}
             record.release()
         }
     }
+        // CRITICAL: move the entire mic-read + FFT loop off Main.  Without
+        // flowOn, the flow body runs on the collector's dispatcher, which is
+        // viewModelScope's Main.immediate — blocking AudioRecord.read() on
+        // Main freezes the UI the moment Start is pressed.
+        .flowOn(Dispatchers.IO)
 }
