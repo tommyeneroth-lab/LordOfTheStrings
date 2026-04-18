@@ -68,6 +68,7 @@ class ScaleTrainerFragment : Fragment() {
         val btnReset = view.findViewById<MaterialButton>(R.id.btn_reset)
         val btnSave = view.findViewById<MaterialButton>(R.id.btn_save)
         val btnListen = view.findViewById<MaterialButton>(R.id.btn_listen)
+        val btnFingerings = view.findViewById<MaterialButton>(R.id.btn_fingerings)
         val tvCount = view.findViewById<TextView>(R.id.tv_catalog_count)
         val beatDots = listOf(
             view.findViewById<View>(R.id.dot_1),
@@ -133,6 +134,7 @@ class ScaleTrainerFragment : Fragment() {
             viewModel.saveSession()
         }
         btnListen.setOnClickListener { viewModel.toggleListen() }
+        btnFingerings.setOnClickListener { viewModel.toggleFingerings() }
 
         // ── Observe selected scale (text metadata only; the engraving comes
         // through currentScore below). ──
@@ -157,6 +159,34 @@ class ScaleTrainerFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewModel.isPlayingScore.collect { playing ->
                 btnListen.text = if (playing) "⏸  Stop" else "🔊  Listen"
+            }
+        }
+
+        // ── Fingerings visibility toggle.  Button label reflects state so
+        //    the student can see at a glance whether they're on. ──
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.fingeringsVisible.collect { visible ->
+                scoreCanvas.fingeringsVisible = visible
+                btnFingerings.text = if (visible) "✋  Fingerings: On" else "✋  Fingerings"
+            }
+        }
+
+        // ── Playback cursor + auto-scroll.  Mirrors the main ScoreViewer's
+        //    behaviour: highlight the currently-sounding note, then nudge
+        //    the canvas so the note sits near the upper-left corner while
+        //    the score plays. ──
+        viewLifecycleOwner.lifecycleScope.launch {
+            var lastScrollMeasure = -1
+            var lastScrollNote = -1
+            viewModel.currentNotePosition.collect { (measureNum, noteIdx) ->
+                scoreCanvas.highlightNote(measureNum, noteIdx)
+                val isPlaying = viewModel.playbackState.value ==
+                    com.cellomusic.app.audio.playback.ScorePlayer.PlaybackState.PLAYING
+                if (isPlaying && (measureNum != lastScrollMeasure || noteIdx != lastScrollNote)) {
+                    lastScrollMeasure = measureNum
+                    lastScrollNote = noteIdx
+                    scoreCanvas.scrollToNote(measureNum, noteIdx)
+                }
             }
         }
 

@@ -77,6 +77,19 @@ class ScaleTrainerViewModel(app: Application) : AndroidViewModel(app) {
         .map { it == ScorePlayer.PlaybackState.PLAYING }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    /** Forwarded from ScorePlayer so the fragment can drive cursor + auto-scroll. */
+    val playbackState: StateFlow<ScorePlayer.PlaybackState> = scorePlayer.playbackState
+    /** (measureNumber, noteIndexInMeasure) — tracks the currently sounding note. */
+    val currentNotePosition: StateFlow<Pair<Int, Int>> = scorePlayer.currentNotePosition
+
+    /**
+     * Toggles cello fingerings on the engraved score.  Fingerings are always
+     * baked into the generated score; this flag gates their display.  Off
+     * by default so the notation is clean for reading ear-first.
+     */
+    private val _fingeringsVisible = MutableStateFlow(false)
+    val fingeringsVisible: StateFlow<Boolean> = _fingeringsVisible
+
     // ── Session timer ──
     /** Elapsed practice time on the current scale, in milliseconds. */
     private val _elapsedMs = MutableStateFlow(0L)
@@ -124,6 +137,10 @@ class ScaleTrainerViewModel(app: Application) : AndroidViewModel(app) {
         // Generated scores bake in a 120 BPM TempoMark; multiplier scales
         // relative to that so the audio matches the user's metronome speed.
         scorePlayer.setTempoMultiplier(clamped / 120f)
+    }
+
+    fun toggleFingerings() {
+        _fingeringsVisible.value = !_fingeringsVisible.value
     }
 
     /**

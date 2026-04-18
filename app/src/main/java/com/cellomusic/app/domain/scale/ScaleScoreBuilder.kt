@@ -5,6 +5,7 @@ import com.cellomusic.app.domain.model.Barline
 import com.cellomusic.app.domain.model.Clef
 import com.cellomusic.app.domain.model.ClefType
 import com.cellomusic.app.domain.model.DurationType
+import com.cellomusic.app.domain.model.Fingering
 import com.cellomusic.app.domain.model.KeyMode
 import com.cellomusic.app.domain.model.KeySignature
 import com.cellomusic.app.domain.model.Measure
@@ -46,6 +47,10 @@ object ScaleScoreBuilder {
         // Prefer flat spelling when the key signature has any flats, or when
         // the natural-key's root idiomatically uses flats (e.g. F major).
         val useFlats = fifths < 0 || (fifths == 0 && prefersFlats(def.rootName))
+        // Fingerings are always baked in; the UI toggles their visibility
+        // via ScoreCanvasView.fingeringsVisible.  Generating them once here
+        // keeps the flag a pure render concern.
+        val fingerings = CelloFingeringGenerator.fingeringsFor(midi)
 
         return Score(
             id = "scale_${def.id}",
@@ -57,7 +62,7 @@ object ScaleScoreBuilder {
                     name = "Cello",
                     abbreviation = "Vc.",
                     midiProgram = 42,
-                    measures = buildMeasures(midi, fifths, mode, useFlats, def.suggestedBpm)
+                    measures = buildMeasures(midi, fingerings, fifths, mode, useFlats, def.suggestedBpm)
                 )
             )
         )
@@ -84,6 +89,7 @@ object ScaleScoreBuilder {
 
     private fun buildMeasures(
         midi: List<Int>,
+        fingerings: List<Fingering?>,
         fifths: Int,
         mode: KeyMode,
         useFlats: Boolean,
@@ -103,7 +109,8 @@ object ScaleScoreBuilder {
                         id = "n_${measureNum}_$idx",
                         startTick = tickInMeasure,
                         duration = NoteDuration(DurationType.EIGHTH),
-                        pitch = midiToPitch(midi[idx], useFlats)
+                        pitch = midiToPitch(midi[idx], useFlats),
+                        fingering = fingerings.getOrNull(idx)
                     )
                 )
                 tickInMeasure += EIGHTH_TICKS

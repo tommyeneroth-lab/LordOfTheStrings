@@ -166,19 +166,45 @@
                 android:layout_width="match_parent"
                 android:layout_height="260dp" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_listen"
+            <!-- Listen + Fingerings toggles. Kept on one row so they read as a
+                 pair of "what you hear / what you see" switches on the score. -->
+            <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:text="🔊  Listen"
-                android:textColor="@color/antique_gold"
-                android:textSize="13sp"
-                android:letterSpacing="0.08"
-                android:layout_marginTop="10dp"
-                app:strokeColor="@color/antique_gold_dim"
-                app:cornerRadius="6dp"
-                app:backgroundTint="@color/oak_dark"
-                style="@style/Widget.Material3.Button.OutlinedButton" />
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="10dp">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_listen"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="48dp"
+                    android:text="🔊  Listen"
+                    android:textColor="@color/antique_gold"
+                    android:textSize="13sp"
+                    android:letterSpacing="0.08"
+                    android:layout_marginEnd="6dp"
+                    app:strokeColor="@color/antique_gold_dim"
+                    app:cornerRadius="6dp"
+                    app:backgroundTint="@color/oak_dark"
+                    style="@style/Widget.Material3.Button.OutlinedButton" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_fingerings"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="48dp"
+                    android:text="✋  Fingerings"
+                    android:textColor="@color/antique_gold"
+                    android:textSize="13sp"
+                    android:letterSpacing="0.08"
+                    android:layout_marginStart="6dp"
+                    app:strokeColor="@color/antique_gold_dim"
+                    app:cornerRadius="6dp"
+                    app:backgroundTint="@color/oak_dark"
+                    style="@style/Widget.Material3.Button.OutlinedButton" />
+
+            </LinearLayout>
 
         </LinearLayout>
 
